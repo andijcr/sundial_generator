@@ -1,16 +1,16 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
-import { sunAt, civilFromUtc, utcFromCivil, norm180 } from './astro.js';
+import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection } from './astro.js';
 import { shadowPoint } from './dial.js';
-import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, gnomonSheet, infoSheet, svgDoc, tileSheets } from './svg.js';
-import { DEFAULTS, PRESETS, WALL_PRESETS, sanitize, buildDial } from './state.js';
+import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileName } from './svg.js';
+import { DEFAULTS, PRESETS, WALL_PRESETS, sanitize, buildDial, serializeState } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const pad2 = (n) => String(n).padStart(2, '0');
-const fmtHM = (min) => { const m = ((Math.round(min) % 1440) + 1440) % 1440; return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtSigned = (x, d = 1) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(d);
 
 let inputWarnings = [];
@@ -24,7 +24,7 @@ const time = { mode: 'live', ms: Date.now(), anim: 'off', speed: 1, trail: [], t
 function loadState() {
   const p = new URLSearchParams(location.hash.slice(1));
   const raw = {};
-  for (const [k, v] of p) if (k in DEFAULTS) raw[k] = v;
+  for (const [k, v] of p) if (Object.hasOwn(DEFAULTS, k)) raw[k] = v;
   const r = sanitize(raw);
   inputWarnings = r.warnings;
   return r.s;
@@ -33,9 +33,8 @@ let hashTimer = 0;
 function saveHash() {
   clearTimeout(hashTimer);
   hashTimer = setTimeout(() => {
-    const p = new URLSearchParams();
-    for (const [k, def] of Object.entries(DEFAULTS)) if (state[k] !== def) p.set(k, String(state[k]));
-    history.replaceState(null, '', p.toString() ? '#' + p : location.pathname + location.search);
+    const h = serializeState(state);
+    history.replaceState(null, '', h ? '#' + h : location.pathname + location.search);
   }, 250);
 }
 
@@ -50,7 +49,7 @@ function applyLang() {
 function fillSelects() {
   const place = $('#place');
   place.innerHTML = Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('') + `<option value="custom">${t('custom')}</option>`;
-  place.value = state.place in PRESETS ? state.place : 'custom';
+  place.value = state.place;
   const wp = $('#wallPreset');
   const dirs = t('dirs');
   wp.innerHTML = `<option value="">${t('custom')}</option>` + Object.entries(WALL_PRESETS).map(([k, d]) => `<option value="${k}">${dirs[k] || k} (D = ${d}°)</option>`).join('');
@@ -91,7 +90,7 @@ function onControl(e) {
   const k = el.dataset.k;
   const v = readControl(el);
   if (k === 'place') {
-    if (PRESETS[v]) { const p = PRESETS[v]; Object.assign(state, { place: v, lat: p.lat, lon: p.lon, tz: p.tz, dst: p.dst }); }
+    if (Object.hasOwn(PRESETS, v)) { const p = PRESETS[v]; Object.assign(state, { place: v, lat: p.lat, lon: p.lon, tz: p.tz, dst: p.dst }); }
     else state.place = 'custom';
   } else {
     // in auto mode, editing L / foot switches to manual using current values
@@ -113,7 +112,7 @@ function update() {
   t = makeT(state.lang);
   dial = buildDial(state, t);
   if (state.v2d) $('#front').innerHTML = frontViewSvg(dial, { s: state, t });
-  $('#place').value = state.place in PRESETS ? state.place : 'custom';
+  $('#place').value = state.place;
   syncWallPreset();
   writeControls();
   const all = [...warns, ...dial.warnings];
@@ -132,7 +131,7 @@ function updateLearn() {
     D: `${state.D.toFixed(1)}°`, L: `${dial.L.toFixed(0)} mm`,
     SH: `${a.SH.toFixed(2)}°`, SD: `${a.SD.toFixed(2)}°`, DL: `${a.DL.toFixed(2)}°`, subH: fmtHM(subH * 60),
     R: dial.root ? `(${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)})` : '—',
-    lonCorr: `${fmtSigned(-4 * (state.lon - 15 * state.tz))} min`,
+    lonCorr: `${fmtSigned(lonCorrection(state.lon, state.tz))} min`,
     lit: `${dial.stats.litPerDay.toFixed(1)} h`,
   };
   for (const el of $$('[data-v]')) if (el.dataset.v in v) el.textContent = v[el.dataset.v];
@@ -167,7 +166,7 @@ function renderTime() {
     if (time.trail.length > 4000) time.trail.shift();
   }
   if (state.v2d) {
-    const sh = $('#shadow'), tr = $('#trail');
+    const sh = $('#front #shadow'), tr = $('#front #trail');
     if (sh) sh.innerHTML = shadowMarkup(dial, { s: state }, S);
     if (tr) tr.innerHTML = time.trailOn ? trailMarkup(dial, time.trail) : '';
   }
@@ -177,7 +176,7 @@ function renderTime() {
   // readout
   const lit = sun.alt > 0 && S;
   const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : t('rBehind');
-  const zoneRead = sun.solarMin - 4 * (state.lon - 15 * state.tz);
+  const zoneRead = sun.solarMin + lonCorrection(state.lon, state.tz);
   $('#readout').innerHTML = [
     `${t('rClock')}: <b>${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)} ${pad2(c.h)}:${pad2(c.mi)}</b> (UTC${c.off >= 0 ? '+' : ''}${c.off}${c.dst ? ' DST' : ''})`,
     `${t('rSolar')}: <b>${fmtHM(sun.solarMin)}</b>`,
@@ -258,7 +257,7 @@ function bindTime() {
     renderTime();
   });
   $('#speed').addEventListener('change', (e) => { time.speed = Number(e.target.value); });
-  $('#trail').addEventListener('change', (e) => { time.trailOn = e.target.checked; time.trail = []; renderTime(); });
+  $('#trailOn').addEventListener('change', (e) => { time.trailOn = e.target.checked; time.trail = []; renderTime(); });
 }
 
 // ---------------- wall measuring helpers ----------------
@@ -304,12 +303,15 @@ function currentTiles() {
   if (state.paper === 'none') return [];
   return tileSheets(faceSheet(dial, ctx()), state.paper, state.overlap, `${t('sheetFace')} ${PRESETS[state.place]?.name || ''}`);
 }
+// only the page grid is computed here; the SVGs are built when a button is clicked
 function updateTiles() {
   const box = $('#tiles');
-  const tiles = currentTiles();
-  if (!tiles.length) { box.innerHTML = ''; return; }
-  box.innerHTML = `<span>${t('tilesFor')} (${tiles.length}):</span>` + tiles.map((tl, i) => `<button type="button" data-tile="${i}">${tl.name.replace('face-', '')}</button>`).join('') +
-    `<button type="button" id="printTiles">${t('printTiles')}</button>`;
+  const { W, H } = faceSheetSize(dial);
+  const lay = tileLayout(W, H, state.paper, state.overlap);
+  if (!lay) { box.innerHTML = ''; return; }
+  const btns = [];
+  for (let j = 0; j < lay.ny; j++) for (let i = 0; i < lay.nx; i++) btns.push(`<button type="button" data-tile="${btns.length}">${tileName('', i, j).slice(1)}</button>`);
+  box.innerHTML = `<span>${t('tilesFor')} (${btns.length}):</span>${btns.join('')}<button type="button" id="printTiles">${t('printTiles')}</button>`;
 }
 function bindDownloads() {
   $('#dlFace').addEventListener('click', () => download(`${base()}-face.svg`, svgDoc(faceSheet(dial, ctx()))));
@@ -323,7 +325,7 @@ function bindDownloads() {
       const w = window.open('', '_blank');
       if (!w) return;
       const { pw, ph } = tiles[0];
-      w.document.write(`<!doctype html><title>${base()} pages</title><style>@page{size:${pw}mm ${ph}mm;margin:0}body{margin:0}.pg{width:${pw}mm;height:${ph}mm;break-after:page;overflow:hidden}.pg svg{display:block;width:${pw}mm;height:${ph}mm}</style>` +
+      w.document.write(`<!doctype html><title>${esc(base())} pages</title><style>@page{size:${pw}mm ${ph}mm;margin:0}body{margin:0}.pg{width:${pw}mm;height:${ph}mm;break-after:page;overflow:hidden}.pg svg{display:block;width:${pw}mm;height:${ph}mm}</style>` +
         tiles.map((tl) => `<div class="pg">${tl.svg.replace(/^<\?xml[^>]*>\s*/, '')}</div>`).join('') + '<script>onload=()=>print()<\/script>');
       w.document.close();
       return;
@@ -344,15 +346,15 @@ function init() {
     navigator.geolocation?.getCurrentPosition((pos) => {
       const jan = -new Date(new Date().getFullYear(), 0, 1).getTimezoneOffset() / 60;
       const jul = -new Date(new Date().getFullYear(), 6, 1).getTimezoneOffset() / 60;
-      Object.assign(state, { place: 'custom', lat: +pos.coords.latitude.toFixed(4), lon: +pos.coords.longitude.toFixed(4), tz: Math.min(jan, jul) });
+      const lon = +pos.coords.longitude.toFixed(4);
+      // the browser's January/July offsets tell whether (and in which hemisphere) summer time applies
+      const dst = jan === jul ? 'none' : jul > jan ? (lon < -30 ? 'US' : 'EU') : 'AU';
+      Object.assign(state, { place: 'custom', lat: +pos.coords.latitude.toFixed(4), lon, tz: Math.min(jan, jul), dst });
       update();
     }, (err) => alert(err.message));
   });
   window.addEventListener('hashchange', () => {
-    const cur = new URLSearchParams(location.hash.slice(1));
-    const mine = new URLSearchParams();
-    for (const [k, def] of Object.entries(DEFAULTS)) if (state[k] !== def) mine.set(k, String(state[k]));
-    if (cur.toString() !== mine.toString()) { state = loadState(); applyLang(); update(); }
+    if (new URLSearchParams(location.hash.slice(1)).toString() !== serializeState(state)) { state = loadState(); applyLang(); update(); }
   });
   bindTime();
   bindMeasure();

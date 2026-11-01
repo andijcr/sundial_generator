@@ -412,7 +412,7 @@ export function computeDial(cfg) {
       analemma(H0, hourText(h), h === 12, o.hDstLabels ? hourText(h + 1) : null);
     }
   } else if (o.anaZoneNoon) {
-    analemma(zoneShift, '12', true, o.hDstLabels ? '13' : null);
+    analemma(zoneShift, hourText(12), true, o.hDstLabels ? hourText(13) : null);
   }
 
   // ---------- Italian / Babylonian hours ----------

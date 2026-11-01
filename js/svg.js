@@ -3,7 +3,7 @@
 //
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
-import { solarParams, dayMs, isDst, REF_YEAR } from './astro.js';
+import { solarParams, dayMs, isDst, REF_YEAR, fmtHM, lonCorrection } from './astro.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -184,12 +184,18 @@ function summaryLines(dial, ctx) {
   ];
 }
 
+const FACE_M = { L: 40, T: 35, R: 40, B: 80 };
+/** Size of the face sheet in mm, without rendering it. */
+export function faceSheetSize(dial) {
+  return { W: dial.plate.w + FACE_M.L + FACE_M.R, H: dial.plate.h + FACE_M.T + FACE_M.B };
+}
+
 export function faceSheet(dial, ctx) {
   const { s, t } = ctx;
   const P = dial.plate;
   const { sw } = sizesFor(s.material, P);
-  const ML = 40, MT = 35, MR = 40, MB = 80;
-  const W = P.w + ML + MR, H = P.h + MT + MB;
+  const { L: ML, T: MT, R: MR } = FACE_M;
+  const { W, H } = faceSheetSize(dial);
   let g = dialMarkup(dial, ctx);
   if (s.material !== 'laser') {
     g += `<path class="l-construct" d="M${f(P.fx)} 0V${f(P.h)}"/>`;
@@ -293,10 +299,8 @@ export function infoSheet(dial, ctx) {
   inner += textLines(x, y, [{ t: t('params'), b: true }, ...summaryLines(dial, ctx)], 3.4);
   y += 6 * 3.4 * 1.45;
   const a = dial.angles;
-  const subH = 12 + a.DL / 15;
-  const hh = Math.floor(((subH % 24) + 24) % 24), mi = Math.round((subH - Math.floor(subH)) * 60);
   inner += textLines(x, y, [{ t: t('angles'), b: true },
-    `${t('SH')}: ${a.SH.toFixed(2)}°   ${t('SD')}: ${a.SD.toFixed(2)}°   ${t('DL')}: ${a.DL.toFixed(2)}°   ${t('substyleHour')}: ${hh}:${String(mi % 60).padStart(2, '0')}`,
+    `${t('SH')}: ${a.SH.toFixed(2)}°   ${t('SD')}: ${a.SD.toFixed(2)}°   ${t('DL')}: ${a.DL.toFixed(2)}°   ${t('substyleHour')}: ${fmtHM((12 + a.DL / 15) * 60)}`,
     dial.root ? `R = (${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)}) mm from F (x right, y up); |RF| = ${Math.hypot(...dial.root).toFixed(1)} mm` : t('noPolar'),
   ], 3.4);
   y += 4 * 3.4 * 1.45 + 2;
@@ -312,7 +316,7 @@ export function infoSheet(dial, ctx) {
   inner += `<path class="dim" d="M${x} ${f(y)}H${W - x}"/>`;
   y += 4.6;
   const months = t('monthsShort');
-  const lonCorr = -4 * (s.lon - 15 * s.tz);
+  const lonCorr = lonCorrection(s.lon, s.tz);
   for (let mo = 0; mo < 12; mo++) {
     for (const day of [1, 15]) {
       const i = Math.round((Date.UTC(REF_YEAR, mo, day) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
@@ -332,16 +336,27 @@ export function infoSheet(dial, ctx) {
 export const PAPERS = { A4: [210, 297], A3: [297, 420], A2: [420, 594] };
 
 /** Split a sheet into printable pages with overlap and shared registration marks. */
-export function tileSheets(sheet, paper, overlap, label) {
-  if (!PAPERS[paper]) return [];
-  const pm = 8; // unprintable margin
+const PRINT_MARGIN = 8; // unprintable margin, mm
+
+/** Page grid for a W×H sheet: orientation with the fewest pages. null if no paper. */
+export function tileLayout(W, H, paper, overlap) {
+  if (!PAPERS[paper]) return null;
+  const pm = PRINT_MARGIN;
   let best = null;
   for (const [pw, ph] of [PAPERS[paper], [PAPERS[paper][1], PAPERS[paper][0]]]) {
     const aw = pw - 2 * pm, ah = ph - 2 * pm, sx = aw - overlap, sy = ah - overlap;
-    const nx = Math.max(1, Math.ceil((sheet.W - overlap) / sx)), ny = Math.max(1, Math.ceil((sheet.H - overlap) / sy));
+    const nx = Math.max(1, Math.ceil((W - overlap) / sx)), ny = Math.max(1, Math.ceil((H - overlap) / sy));
     if (!best || nx * ny < best.nx * best.ny) best = { pw, ph, aw, ah, sx, sy, nx, ny };
   }
-  const { pw, ph, aw, ah, sx, sy, nx, ny } = best;
+  return best;
+}
+export const tileName = (base, i, j) => `${base}-r${j + 1}c${i + 1}`;
+
+export function tileSheets(sheet, paper, overlap, label) {
+  const lay = tileLayout(sheet.W, sheet.H, paper, overlap);
+  if (!lay) return [];
+  const pm = PRINT_MARGIN;
+  const { pw, ph, aw, ah, sx, sy, nx, ny } = lay;
   let regs = '';
   for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {
     const cx = i * sx + overlap / 2, cy = j * sy + overlap / 2;
@@ -358,7 +373,7 @@ export function tileSheets(sheet, paper, overlap, label) {
     const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${pw}mm" height="${ph}mm" viewBox="${f(x0 - pm)} ${f(y0 - pm)} ${pw} ${ph}">
 ${DEFS}<style>${sheet.css}${SHEET_CSS}</style>${inner}</svg>`;
-    out.push({ name: `${sheet.name}-r${j + 1}c${i + 1}`, svg, pw, ph });
+    out.push({ name: tileName(sheet.name, i, j), svg, pw, ph });
   }
   return out;
 }

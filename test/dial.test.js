@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial } from '../js/state.js';
-import { faceSheet, gnomonSheet, infoSheet, svgDoc, tileSheets } from '../js/svg.js';
+import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout } from '../js/svg.js';
+import { fmtHM } from '../js/astro.js';
 import { makeT } from '../js/i18n.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
@@ -146,4 +147,36 @@ test('tiling covers the sheet', () => {
   const tiles = tileSheets(sheet, 'A4', 10, 'x');
   assert.ok(tiles.length >= 6, `got ${tiles.length}`);
   assert.equal(tileSheets(sheet, 'none', 10, 'x').length, 0);
+});
+
+test('sanitize rejects unknown places (no markup from the URL hash)', () => {
+  for (const place of ['</title><img src=x onerror=alert(1)>', 'toString', '__proto__']) {
+    assert.equal(sanitize({ place }).s.place, 'custom');
+  }
+  assert.equal(sanitize({ place: 'milan' }).s.place, 'milan');
+});
+
+test('tile layout matches the rendered tiles; face size matches the sheet', () => {
+  const { s } = sanitize({ ...DEFAULTS, plateW: 1000, plateH: 700 });
+  const t = makeT('en');
+  const dial = buildDial(s, t);
+  const sheet = faceSheet(dial, { s, t });
+  const size = faceSheetSize(dial);
+  assert.deepEqual([size.W, size.H], [sheet.W, sheet.H]);
+  for (const paper of ['A4', 'A3', 'A2']) {
+    const lay = tileLayout(size.W, size.H, paper, 10);
+    assert.equal(lay.nx * lay.ny, tileSheets(sheet, paper, 10, 'x').length, paper);
+  }
+});
+
+test('fmtHM rounds across the hour', () => {
+  assert.equal(fmtHM(13.9995 * 60), '14:00');
+  assert.equal(fmtHM(-1), '23:59');
+});
+
+test('Roman numerals also apply to the zone-noon figure-8', () => {
+  const { s } = sanitize({ ...DEFAULTS, hRoman: true, anaZoneNoon: true, hDstLabels: true });
+  const dial = buildDial(s, makeT('en'));
+  const texts = dial.layers.filter((l) => l.cls === 'anaF').flatMap((l) => l.labels.map((x) => x.text));
+  assert.ok(texts.includes('XII') && texts.includes('XIII') && !texts.includes('12'), texts.join(','));
 });

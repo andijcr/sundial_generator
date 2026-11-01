@@ -106,6 +106,15 @@ function nthSunday(y, m, n) {
 
 export const DST_RULES = ['EU', 'US', 'AU', 'none'];
 
+/** Minutes to add to apparent solar time (before EoT) to get zone standard time. */
+export const lonCorrection = (lon, tz) => -4 * (lon - 15 * tz);
+
+/** Format minutes after midnight as HH:MM (wraps around 24 h, rounds to the minute). */
+export function fmtHM(min) {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
 /** Is daylight saving active at UTC instant ms, for standard offset tz (h) and rule? */
 export function isDst(ms, tz, rule) {
   const y = new Date(ms).getUTCFullYear();

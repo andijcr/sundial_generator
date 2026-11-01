@@ -2,6 +2,7 @@
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
 import { computeDial, autoFit } from './dial.js';
+import { DST_RULES } from './astro.js';
 import { sizesFor } from './svg.js';
 
 export const PRESETS = {
@@ -67,7 +68,8 @@ export function sanitize(input) {
     }
   }
   if (!['paper', 'tile', 'laser'].includes(s.material)) s.material = 'paper';
-  if (!['EU', 'US', 'AU', 'none'].includes(s.dst)) s.dst = 'none';
+  if (!DST_RULES.includes(s.dst)) s.dst = 'none';
+  if (!Object.hasOwn(PRESETS, s.place)) s.place = 'custom';
   if (!['en', 'it'].includes(s.lang)) s.lang = 'en';
   s.motto = s.motto.slice(0, 80);
   // a dial needs at least one way of telling the time
@@ -78,6 +80,13 @@ export function sanitize(input) {
 }
 
 const r2 = (x, q) => Math.round(x / q) * q;
+
+/** URL-hash form of the state: only values that differ from the defaults. */
+export function serializeState(s) {
+  const p = new URLSearchParams();
+  for (const [k, def] of Object.entries(DEFAULTS)) if (s[k] !== def) p.set(k, String(s[k]));
+  return p.toString();
+}
 
 /** Build the dial from sanitized state. Rounds L / foot to buildable values. */
 export function buildDial(s, t) {
