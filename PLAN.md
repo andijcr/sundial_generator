@@ -1,5 +1,12 @@
 # Sundial Generator — Plan
 
+## Decisions (after first review)
+- Every multiple-choice question is an option in the page (checkboxes where options can be
+  combined): hour systems, summer-time labels, gnomon type, plate size, paper tiling,
+  material, extra marks, language (EN/IT), front and 3D views.
+- Preview: a GitHub Action runs on every PR and uploads the static site plus sample SVG plans as an
+  artifact. Publishing to andijcr.github.io comes later.
+
 Goal: a static, dependency-free web page that (1) simulates a wall-mounted
 (vertical, declining) sundial interactively, (2) explains the maths, and
 (3) exports printable, dimensioned SVG plans for the dial face and gnomon.

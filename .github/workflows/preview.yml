@@ -1,0 +1,45 @@
+name: PR preview
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test the maths
+        run: npm test
+
+      - name: Build site and sample plans
+        run: node tools/build.mjs _site
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sundial-preview-${{ github.event.pull_request.number && format('pr{0}', github.event.pull_request.number) || github.run_number }}
+          path: _site
+          retention-days: 14
+
+      - name: Job summary
+        run: |
+          {
+            echo "## Sundial preview"
+            echo ""
+            echo "Download the **sundial-preview** artifact from this run, unzip it and either:"
+            echo ""
+            echo "- run \`python3 -m http.server\` inside it and open http://localhost:8000 (ES modules need http://, not file://), or"
+            echo "- open \`plans/index.html\` to browse the pre-rendered SVG plans."
+            echo ""
+            echo "### Generated plans"
+            ls _site/plans | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wall Sundial Generator</title>
+<meta name="description" content="Design a vertical declining wall sundial: interactive shadow simulation, the mathematics behind it, and printable SVG plans with dimensions.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f0a020'/%3E%3Cpath d='M16 2v5M16 25v5M2 16h5M25 16h5M6 6l3.5 3.5M22.5 22.5L26 26M6 26l3.5-3.5M22.5 9.5L26 6' stroke='%23f0a020' stroke-width='2.5'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1 data-i18n="title">Wall sundial generator</h1>
+    <p class="sub" data-i18n="subtitle"></p>
+  </div>
+  <div class="lang" role="group" aria-label="Language">
+    <button type="button" data-lang-btn="en">EN</button>
+    <button type="button" data-lang-btn="it">IT</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="controls" id="controls">
+    <details open>
+      <summary data-i18n="secLocation"></summary>
+      <label><span data-i18n="preset"></span>
+        <select data-k="place" id="place"></select></label>
+      <div class="row2">
+        <label><span data-i18n="lat"></span><input type="number" data-k="lat" step="0.0001" min="-66" max="66"></label>
+        <label><span data-i18n="lon"></span><input type="number" data-k="lon" step="0.0001" min="-180" max="180"></label>
+      </div>
+      <div class="row2">
+        <label><span data-i18n="tz"></span><input type="number" data-k="tz" step="0.5" min="-12" max="14"></label>
+        <label><span data-i18n="dst"></span>
+          <select data-k="dst">
+            <option value="EU" data-i18n="dstEU"></option><option value="US" data-i18n="dstUS"></option>
+            <option value="AU" data-i18n="dstAU"></option><option value="none" data-i18n="dstNone"></option>
+          </select></label>
+      </div>
+      <button type="button" id="geo" data-i18n="useLocation"></button>
+    </details>
+
+    <details open>
+      <summary data-i18n="secWall"></summary>
+      <label><span data-i18n="wallPreset"></span><select id="wallPreset"></select></label>
+      <label><span data-i18n="wallDecl"></span>
+        <span class="pair"><input type="range" data-k="D" min="-180" max="180" step="0.5"><input type="number" data-k="D" min="-180" max="180" step="0.1"></span></label>
+      <p class="hint"><span data-i18n="facesAz"></span>: <b id="facesAz"></b></p>
+      <details class="nested">
+        <summary data-i18n="measure"></summary>
+        <h4 data-i18n="measureShadowTitle"></h4>
+        <p class="hint" data-i18n="measureShadowHelp"></p>
+        <div class="row2">
+          <label><span data-i18n="date"></span><input type="date" id="mDate"></label>
+          <label><span data-i18n="time"></span><input type="time" id="mTime"></label>
+        </div>
+        <label><span data-i18n="beta"></span><input type="number" id="mBeta" value="0" step="0.5"></label>
+        <p class="hint">D = <b id="mShadowOut">–</b> <button type="button" id="mShadowApply" data-i18n="apply"></button></p>
+        <h4 data-i18n="measureCompassTitle"></h4>
+        <p class="hint" data-i18n="measureCompassHelp"></p>
+        <div class="row2">
+          <label><span data-i18n="bearing"></span><input type="number" id="mBearing" value="225" step="0.5"></label>
+          <label><span data-i18n="magdecl"></span><input type="number" id="mMagDecl" value="4" step="0.1"></label>
+        </div>
+        <p class="hint">D = <b id="mCompassOut">–</b> <button type="button" id="mCompassApply" data-i18n="apply"></button></p>
+      </details>
+    </details>
+
+    <details open>
+      <summary data-i18n="secTime"></summary>
+      <div class="radios">
+        <label><input type="radio" name="tmode" value="live" checked> <span data-i18n="modeLive"></span></label>
+        <label><input type="radio" name="tmode" value="chosen"> <span data-i18n="modeChosen"></span></label>
+        <button type="button" id="nowBtn" data-i18n="now"></button>
+      </div>
+      <div class="row2">
+        <label><span data-i18n="date"></span><input type="date" id="tDate"></label>
+        <label><span data-i18n="time"></span><input type="time" id="tTime" step="60"></label>
+      </div>
+      <label><span data-i18n="dayOfYear"></span><input type="range" id="tDoy" min="0" max="365" step="1"></label>
+      <label><span data-i18n="minuteOfDay"></span><input type="range" id="tMin" min="0" max="1439" step="1"></label>
+      <div class="row2">
+        <label><span data-i18n="animate"></span>
+          <select id="anim"><option value="off" data-i18n="animOff"></option><option value="day" data-i18n="animDay"></option><option value="year" data-i18n="animYear"></option></select></label>
+        <label><span data-i18n="speed"></span>
+          <select id="speed"><option value="0" data-i18n="slow"></option><option value="1" data-i18n="normal" selected></option><option value="2" data-i18n="fast"></option></select></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="trailOn" checked> <span data-i18n="trail"></span></label>
+    </details>
+
+    <details open>
+      <summary data-i18n="secSize"></summary>
+      <div class="row2">
+        <label><span data-i18n="plateW"></span><input type="number" data-k="plateW" min="50" max="5000" step="10"></label>
+        <label><span data-i18n="plateH"></span><input type="number" data-k="plateH" min="50" max="5000" step="10"></label>
+      </div>
+      <label class="chk"><input type="checkbox" data-k="auto"> <span data-i18n="autoFit"></span></label>
+      <label class="chk"><input type="checkbox" data-k="includeRoot"> <span data-i18n="includeRoot"></span></label>
+      <label><span data-i18n="grazing"></span><input type="number" data-k="grazing" min="1" max="40" step="1"></label>
+      <label><span data-i18n="nodusL"></span><input type="number" data-k="L" min="2" max="3000" step="1" class="manual"></label>
+      <div class="row2">
+        <label><span data-i18n="footX"></span><input type="number" data-k="fx" step="0.5" class="manual"></label>
+        <label><span data-i18n="footY"></span><input type="number" data-k="fy" step="0.5" class="manual"></label>
+      </div>
+      <fieldset><legend data-i18n="gnomonType"></legend>
+        <label class="chk"><input type="checkbox" data-k="gPolar"> <span data-i18n="gPolar"></span></label>
+        <label class="chk"><input type="checkbox" data-k="gRod"> <span data-i18n="gRod"></span></label>
+      </fieldset>
+    </details>
+
+    <details open>
+      <summary data-i18n="secHours"></summary>
+      <label class="chk"><input type="checkbox" data-k="hSolar"> <span data-i18n="hSolar"></span> <i class="sw sw-hour"></i></label>
+      <label class="chk"><input type="checkbox" data-k="hZone"> <span data-i18n="hZone"></span> <i class="sw sw-zone"></i></label>
+      <label class="chk"><input type="checkbox" data-k="hHalf"> <span data-i18n="hHalf"></span></label>
+      <label class="chk"><input type="checkbox" data-k="hQuarter"> <span data-i18n="hQuarter"></span></label>
+      <label class="chk"><input type="checkbox" data-k="hExtend"> <span data-i18n="hExtend"></span></label>
+      <label class="chk"><input type="checkbox" data-k="hRoman"> <span data-i18n="hRoman"></span></label>
+      <label class="chk"><input type="checkbox" data-k="hDstLabels"> <span data-i18n="hDstLabels"></span> <i class="sw sw-dst"></i></label>
+    </details>
+
+    <details open>
+      <summary data-i18n="secCalendar"></summary>
+      <label class="chk"><input type="checkbox" data-k="anaMeanNoon"> <span data-i18n="anaMeanNoon"></span> <i class="sw sw-ana"></i></label>
+      <label class="chk"><input type="checkbox" data-k="anaZoneNoon"> <span data-i18n="anaZoneNoon"></span> <i class="sw sw-ana"></i></label>
+      <label class="chk"><input type="checkbox" data-k="anaHours"> <span data-i18n="anaHours"></span> <i class="sw sw-ana"></i></label>
+      <label class="chk"><input type="checkbox" data-k="anaMonthTicks"> <span data-i18n="anaMonthTicks"></span></label>
+      <label class="chk"><input type="checkbox" data-k="dSolEq"> <span data-i18n="dSolEq"></span> <i class="sw sw-date"></i></label>
+      <label class="chk"><input type="checkbox" data-k="dZodiac"> <span data-i18n="dZodiac"></span> <i class="sw sw-date"></i></label>
+      <label class="chk"><input type="checkbox" data-k="dMonths"> <span data-i18n="dMonths"></span> <i class="sw sw-date"></i></label>
+    </details>
+
+    <details>
+      <summary data-i18n="secExtras"></summary>
+      <label class="chk"><input type="checkbox" data-k="xItalian"> <span data-i18n="xItalian"></span> <i class="sw sw-ital"></i></label>
+      <label class="chk"><input type="checkbox" data-k="xBabylonian"> <span data-i18n="xBabylonian"></span> <i class="sw sw-bab"></i></label>
+      <label class="chk"><input type="checkbox" data-k="xAzimuth"> <span data-i18n="xAzimuth"></span></label>
+      <label class="chk"><input type="checkbox" data-k="xAltitude"> <span data-i18n="xAltitude"></span></label>
+      <label class="chk"><input type="checkbox" data-k="xSubstyle"> <span data-i18n="xSubstyle"></span></label>
+      <label class="chk"><input type="checkbox" data-k="xInfo"> <span data-i18n="xInfo"></span></label>
+      <label><span data-i18n="motto"></span><input type="text" data-k="motto" maxlength="80" placeholder="Horas non numero nisi serenas"></label>
+    </details>
+
+    <details open>
+      <summary data-i18n="secExport"></summary>
+      <label><span data-i18n="material"></span>
+        <select data-k="material"><option value="paper" data-i18n="matPaper"></option><option value="tile" data-i18n="matTile"></option><option value="laser" data-i18n="matLaser"></option></select></label>
+      <div class="row2">
+        <label><span data-i18n="paper"></span>
+          <select data-k="paper"><option value="none" data-i18n="paperNone"></option><option value="A4">A4</option><option value="A3">A3</option><option value="A2">A2</option></select></label>
+        <label><span data-i18n="overlap"></span><input type="number" data-k="overlap" min="0" max="60" step="1"></label>
+      </div>
+      <div class="buttons">
+        <button type="button" id="dlFace" data-i18n="dlFace"></button>
+        <button type="button" id="dlGnomon" data-i18n="dlGnomon"></button>
+        <button type="button" id="dlInfo" data-i18n="dlInfo"></button>
+      </div>
+      <div id="tiles" class="tiles"></div>
+    </details>
+
+    <details open>
+      <summary data-i18n="secViews"></summary>
+      <label class="chk"><input type="checkbox" data-k="v2d"> <span data-i18n="v2d"></span></label>
+      <label class="chk"><input type="checkbox" data-k="v3d"> <span data-i18n="v3d"></span></label>
+    </details>
+  </aside>
+
+  <section class="stage">
+    <ul id="warnings" class="warnings"></ul>
+    <div id="readout" class="readout"></div>
+    <div class="views">
+      <figure id="frontWrap"><div id="front"></div></figure>
+      <figure id="v3dWrap"><canvas id="view3d" aria-label="3D view: drag to rotate, scroll to zoom"></canvas></figure>
+    </div>
+
+    <article class="learn" id="learn">
+      <section data-lang="en">
+        <h2>How it works</h2>
+        <p>A sundial is a shadow-projection machine. Everything on this page comes from <b>one</b> vector formula, applied to different sets of sun positions.</p>
+        <h3>1. Where is the sun?</h3>
+        <p>Two numbers describe the sun on a given day. The <b>declination δ</b> is how far north of the celestial equator the sun is: it swings between −23.44° and +23.44° over the year (today <b data-v="decl"></b>). The <b>equation of time E</b> is how far the real sun runs ahead of a perfectly uniform clock-sun (today <b data-v="eot"></b>). E comes from the elliptical orbit plus the tilt of the Earth's axis.</p>
+        <p>During the day, the sun turns around the Earth's axis at 15° per hour. The <b>hour angle</b> is <code>H = 15° × (apparent solar time − 12 h)</code>, where apparent solar time = clock time − zone offset + longitude/15° + E. Right now H = <b data-v="H"></b>. In local horizon coordinates (east, north, up), at latitude φ:</p>
+        <pre>s = ( −cos δ · sin H,
+       cos φ · sin δ − sin φ · cos δ · cos H,
+       sin φ · sin δ + cos φ · cos δ · cos H )</pre>
+        <h3>2. The wall</h3>
+        <p>A vertical wall is described by its <b>declination D</b>: how far its outward normal turns from due south (west positive). Here D = <b data-v="D"></b>. The wall's frame is n = (−sin D, −cos D, 0) (outward), u = (cos D, −sin D, 0) (to your right as you face the wall), v = (0, 0, 1) (up). The wall is lit only when <code>s · n &gt; 0</code>. Over a year that gives this wall about <b data-v="lit"></b> of sun per day.</p>
+        <h3>3. The shadow: one formula</h3>
+        <p>Put a point, the <b>nodus</b>, at distance L = <b data-v="L"></b> in front of the foot F. Follow the ray from the nodus away from the sun until it hits the wall:</p>
+        <pre>shadow = L·n − (L / (s·n)) · s      →  x = shadow·u,  y = shadow·v</pre>
+        <p>That's the whole trick. Every line on the dial is this point traced while something varies:</p>
+        <ul>
+          <li><b>Hour line</b>: fix H and vary δ over the year. The points form a straight line, because they all lie in the plane through the Earth's axis and the nodus.</li>
+          <li><b>Date line</b>: fix δ and vary H over the day. The nodus shadow then sweeps a cone, and the wall cuts it in a conic: a hyperbola at these latitudes, and a straight line at the equinoxes.</li>
+          <li><b>Figure-8 (analemma)</b>: fix the <i>clock</i> time and let the date vary. Because δ and E both change, the shadow traces a figure-8. Its upper and lower loops are the solstices, and month marks turn it into a calendar.</li>
+        </ul>
+        <h3>4. The polar style</h3>
+        <p>A straight edge through the nodus, parallel to the Earth's axis, makes every hour line valid on every day: its shadow <i>is</i> the hour line. It meets the wall at the <b>style root R</b> = <b data-v="R"></b> (mm from F), and all hour lines meet there. The classic dialling angles fall out:</p>
+        <ul>
+          <li>Style height: <code>sin SH = cos φ · cos D</code> → <b data-v="SH"></b></li>
+          <li>Substyle distance from the vertical: <code>tan SD = sin D / tan φ</code> → <b data-v="SD"></b></li>
+          <li>Longitude difference: <code>tan DL = tan D / sin φ</code> → <b data-v="DL"></b> (the substyle is the <b data-v="subH"></b> solar hour line)</li>
+        </ul>
+        <p>The code doesn't use these formulas. It computes R by intersecting the axis line with the wall, and the tests check that the two methods agree.</p>
+        <h3>5. Reading the right time</h3>
+        <p>A classic dial shows <b>apparent solar time</b>. Getting from there to the clock needs three corrections:</p>
+        <ul>
+          <li><b>Longitude</b>: 4 min per degree from the zone meridian, here <b data-v="lonCorr"></b>. The "zone time" hour lines bake this in.</li>
+          <li><b>Equation of time</b>: up to ±16 min over the year. The figure-8 on each hour bakes this in too, so that dial reads clock time directly. Use the solid branch from December to June and the dashed branch from June to December.</li>
+          <li><b>Summer time</b>: +1 h, shown as optional secondary labels.</li>
+        </ul>
+        <p>The info sheet prints a correction table for each kind of line.</p>
+        <h3>6. Old Italian hours</h3>
+        <p>Until the 1800s Italy counted <b>Italian hours</b> from sunset: hour 24 was sunset, so a glance told you how much daylight was left. <b>Babylonian hours</b> count from sunrise. On a plane dial both are straight lines too. Hour k is where the sun is k hours after sunrise, or 24−k hours before sunset, using that day's sunset hour angle <code>cos H₀ = −tan φ · tan δ</code>.</p>
+        <h3>7. Sanity bounds</h3>
+        <p>Latitude is limited to ±66°. Near-grazing sun (s·n → 0) sends shadows towards infinity, so lines are clipped to the plate and auto-fit ignores sun positions within a few degrees of the wall plane. Walls facing almost east or west get nearly parallel hour lines, and north-facing walls get very little sun. In each case the page warns you.</p>
+      </section>
+      <section data-lang="it">
+        <h2>Come funziona</h2>
+        <p>Una meridiana è una macchina che proietta ombre. Tutto ciò che vedi in questa pagina nasce da <b>una sola</b> formula vettoriale, applicata a diversi insiemi di posizioni del sole.</p>
+        <h3>1. Dov'è il sole?</h3>
+        <p>Due numeri descrivono il sole in un dato giorno. La <b>declinazione δ</b> dice di quanto il sole sta a nord dell'equatore celeste: oscilla tra −23,44° e +23,44° nel corso dell'anno (oggi <b data-v="decl"></b>). L'<b>equazione del tempo E</b> dice di quanto il sole vero anticipa un sole ideale perfettamente uniforme (oggi <b data-v="eot"></b>). E nasce dall'orbita ellittica e dall'inclinazione dell'asse terrestre.</p>
+        <p>Durante il giorno il sole ruota attorno all'asse terrestre di 15° all'ora. L'<b>angolo orario</b> è <code>H = 15° × (tempo solare vero − 12 h)</code>, dove tempo solare vero = ora dell'orologio − fuso + longitudine/15° + E. Adesso H = <b data-v="H"></b>. In coordinate locali (est, nord, alto), alla latitudine φ:</p>
+        <pre>s = ( −cos δ · sin H,
+       cos φ · sin δ − sin φ · cos δ · cos H,
+       sin φ · sin δ + cos φ · cos δ · cos H )</pre>
+        <h3>2. La parete</h3>
+        <p>Una parete verticale è descritta dalla sua <b>declinazione D</b>: di quanto la normale uscente ruota rispetto al sud (ovest positivo). Qui D = <b data-v="D"></b>. Il sistema di riferimento della parete è n = (−sin D, −cos D, 0) (uscente), u = (cos D, −sin D, 0) (a destra guardando il muro), v = (0, 0, 1) (in alto). La parete è illuminata solo quando <code>s · n &gt; 0</code>. In un anno questo dà a questa parete circa <b data-v="lit"></b> di sole al giorno.</p>
+        <h3>3. L'ombra: una formula</h3>
+        <p>Metti un punto, il <b>nodo</b>, a distanza L = <b data-v="L"></b> davanti al piede F. Segui il raggio che parte dal nodo, in direzione opposta al sole, fino al muro:</p>
+        <pre>ombra = L·n − (L / (s·n)) · s      →  x = ombra·u,  y = ombra·v</pre>
+        <p>Tutto qui. Ogni linea del quadrante è questo punto tracciato mentre qualcosa varia:</p>
+        <ul>
+          <li><b>Linea oraria</b>: fissa H e fai variare δ lungo l'anno. I punti formano una retta, perché stanno tutti nel piano che contiene l'asse terrestre e il nodo.</li>
+          <li><b>Linea diurna</b>: fissa δ e fai variare H lungo il giorno. L'ombra del nodo descrive allora un cono, che il muro taglia in una conica: un'iperbole a queste latitudini, una retta agli equinozi.</li>
+          <li><b>Lemniscata (analemma)</b>: fissa l'ora <i>dell'orologio</i> e fai variare la data. Poiché cambiano sia δ sia E, l'ombra disegna un 8. I due anelli corrispondono ai solstizi, e i segni dei mesi lo trasformano in un calendario.</li>
+        </ul>
+        <h3>4. Lo stilo polare</h3>
+        <p>Uno spigolo retto passante per il nodo e parallelo all'asse terrestre rende valida ogni linea oraria in ogni giorno: la sua ombra <i>è</i> la linea oraria. Lo spigolo incontra il muro nella <b>radice dello stilo R</b> = <b data-v="R"></b> (mm da F), dove convergono tutte le linee orarie. Ne seguono gli angoli classici della gnomonica:</p>
+        <ul>
+          <li>Altezza dello stilo: <code>sin SH = cos φ · cos D</code> → <b data-v="SH"></b></li>
+          <li>Sostilare dalla verticale: <code>tan SD = sin D / tan φ</code> → <b data-v="SD"></b></li>
+          <li>Differenza di longitudine: <code>tan DL = tan D / sin φ</code> → <b data-v="DL"></b> (la sostilare coincide con la linea delle <b data-v="subH"></b> solari)</li>
+        </ul>
+        <p>Il codice non usa queste formule. Calcola R intersecando la retta dell'asse con il muro, e i test verificano che i due metodi coincidano.</p>
+        <h3>5. Leggere l'ora giusta</h3>
+        <p>Una meridiana classica indica il <b>tempo solare vero</b>. Per passare all'orologio servono tre correzioni:</p>
+        <ul>
+          <li><b>Longitudine</b>: 4 min per grado di distanza dal meridiano del fuso, qui <b data-v="lonCorr"></b>. Le linee "del fuso" la includono già.</li>
+          <li><b>Equazione del tempo</b>: fino a ±16 min nel corso dell'anno. Anche la lemniscata su ogni ora la include, così quel quadrante indica direttamente l'ora dell'orologio. Usa il ramo continuo da dicembre a giugno e quello tratteggiato da giugno a dicembre.</li>
+          <li><b>Ora legale</b>: +1 h, mostrata come etichette secondarie opzionali.</li>
+        </ul>
+        <p>Il foglio informativo stampa una tabella di correzione per ogni tipo di linea.</p>
+        <h3>6. Ore italiche</h3>
+        <p>Fino all'Ottocento in Italia si contavano le <b>ore italiche</b> dal tramonto: l'ora 24 era il tramonto, quindi bastava uno sguardo per sapere quanta luce restava. Le <b>ore babiloniche</b> si contano dall'alba. Su un quadrante piano anche queste sono rette. L'ora k è il punto in cui il sole si trova k ore dopo l'alba, oppure 24−k ore prima del tramonto, usando l'angolo orario del tramonto di quel giorno, <code>cos H₀ = −tan φ · tan δ</code>.</p>
+        <h3>7. Limiti di sicurezza</h3>
+        <p>La latitudine è limitata a ±66°. Con il sole radente (s·n → 0) le ombre tendono all'infinito, quindi le linee vengono tagliate al bordo della lastra e l'adattamento ignora le posizioni del sole a pochi gradi dal piano del muro. Le pareti quasi a est o a ovest hanno linee orarie quasi parallele, e quelle esposte a nord ricevono pochissimo sole. In ognuno di questi casi la pagina mostra un avviso.</p>
+      </section>
+    </article>
+  </section>
+</main>
+<footer class="foot"><a href="https://github.com/andijcr/sundial_generator">source</a> · no build, no dependencies</footer>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

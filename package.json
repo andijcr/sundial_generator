@@ -1,0 +1,10 @@
+{
+  "name": "sundial-generator",
+  "private": true,
+  "type": "module",
+  "description": "Wall sundial simulator and printable SVG plan generator. No dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "node tools/build.mjs"
+  }
+}
