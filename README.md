@@ -33,6 +33,8 @@ Settings are stored in the URL hash, so a configured dial can be shared as a lin
 
 ## Develop
 
+Requires Node 22 or newer for the tests and the build script (the page itself needs only a browser).
+
 ```sh
 npm test                 # node --test, checks the maths against known values
 node tools/build.mjs     # copies the site to _site/ and renders sample plans in _site/plans/
