@@ -52,4 +52,10 @@ node tools/build.mjs     # copies the site to _site/ and renders sample plans in
 
 Every pull request runs `.github/workflows/preview.yml`. It runs the tests, builds `_site/` and uploads it as the **sundial-preview** artifact, which contains the page and the pre-rendered sample plans.
 
-Publishing to `andijcr.github.io` is planned for a later phase. The site is fully static with relative paths, so copying `_site/` (or `index.html`, `css/`, `js/`) into any folder works.
+## Publishing
+
+`.github/workflows/pages.yml` deploys `_site/` to GitHub Pages on every push to `main`. One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site is then served at `https://<user>.github.io/sundial_generator/`.
+
+Copying into a separate `<user>.github.io` repo is not needed: project sites are already served under that domain.
+
+The site is fully static with relative paths, so copying `_site/` (or `index.html`, `css/`, `js/`) into any folder also works.
