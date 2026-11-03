@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial } from '../js/state.js';
-import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout } from '../js/svg.js';
+import { DEFAULTS, sanitize, buildDial, serializeState } from '../js/state.js';
+import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, frontViewSvg, shadowMarkup } from '../js/svg.js';
 import { fmtHM } from '../js/astro.js';
-import { makeT } from '../js/i18n.js';
+import { makeT, STRINGS } from '../js/i18n.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 const sin = (d) => Math.sin(d * DEG), cos = (d) => Math.cos(d * DEG), tan = (d) => Math.tan(d * DEG);
@@ -240,4 +240,75 @@ test('hour lines extend to the style root only for the triangular style', () => 
   const ext = (c) => buildDial(sanitize({ ...DEFAULTS, ...c }).s, makeT('en')).layers.find((l) => l.id === 'hourSolarExt').lines.length;
   assert.ok(ext({ gPolar: true }) > 0);
   assert.equal(ext({ gPolar: false, gRod: false, gBlade: true }), 0);
+});
+
+// ---- blade: tests that go through the real drawing code ----
+
+const bladeCfg = (c = {}) => {
+  const { s } = sanitize({ ...DEFAULTS, gPolar: false, gRod: false, gBlade: true, ...c });
+  const t = makeT(s.lang);
+  return { s, t, dial: buildDial(s, t) };
+};
+const pts = (svg, re) => [...svg.matchAll(re)].map((m) => m[1].trim().split(/\s+/).map((p) => p.split(',').map(Number)));
+
+test('shadowMarkup draws the blade shadow as the triangle A (h above F), F, S', () => {
+  const { s, dial } = bladeCfg();
+  const S = shadowPoint(sunVector(0, 40, 41.9028), dial.L, dial.frame);
+  assert.ok(S, 'sun on the wall');
+  const [tri] = pts(shadowMarkup(dial, { s }, S), /<polygon points="([^"]+)"/g);
+  const P = dial.plate;
+  const want = [[P.fx, P.fy - bladeHeight(dial.L)], [P.fx, P.fy], [P.fx + S[0], P.fy - S[1]]];
+  assert.equal(tri.length, 3);
+  tri.forEach(([x, y], i) => { near(x, want[i][0], 0.01, `vertex ${i} x`); near(y, want[i][1], 0.01, `vertex ${i} y`); });
+});
+
+test('front view: blade is a vertical bar from F; rod and blade share one dot', () => {
+  const { s, dial } = bladeCfg();
+  const svg = frontViewSvg(dial, { s, t: makeT('en') });
+  const P = dial.plate;
+  const bar = svg.match(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)" stroke="#2b2b2b"/);
+  assert.ok(bar, 'bar present');
+  near(+bar[1], P.fx, 0.01); near(+bar[3], P.fx, 0.01);
+  near(+bar[2], P.fy, 0.01); near(+bar[4], P.fy - bladeHeight(dial.L), 0.01);
+  const both = frontViewSvg(dial, { s: { ...s, gRod: true }, t: makeT('en') });
+  const dots = (x) => (x.match(/<circle cx="[\d.]+" cy="[\d.]+" r="[\d.]+" fill="#2b2b2b"\/>/g) || []).length;
+  assert.equal(dots(svg), 1);
+  assert.equal(dots(both), 1, 'not drawn twice');
+});
+
+test('blade template: tab label only where it fits, otherwise it moves to the caption', () => {
+  const sheet = (lang, L) => {
+    const { s, t, dial } = bladeCfg({ lang, auto: false, L, fx: 300, fy: 120 });
+    return { svg: svgDoc(gnomonSheet(dial, { s, t, place: 'x', dateStr: 'x' })), t };
+  };
+  const roomy = sheet('en', 80);
+  assert.ok(roomy.svg.includes(`>${roomy.t('tab')}</text>`) && !roomy.svg.includes(roomy.t('bladeTabAt')), 'L=80 EN: label on the tab');
+  const tight = sheet('it', 50);
+  assert.ok(!tight.svg.includes(`>${tight.t('tab')}</text>`) && tight.svg.includes(tight.t('bladeTabAt')), 'L=50 IT: caption instead');
+  const tiny = sheet('en', 20);
+  assert.ok(tiny.svg.includes(tiny.t('bladeTabAt')));
+  assert.match(tiny.svg, /<text class="dt"[^>]*style="text-anchor:end">h = 20\.0 mm<\/text>/, 'short h dimension: label on the outer (left) side');
+});
+
+test('blade stays clear of the "no triangular style" text', () => {
+  const { s, t, dial } = bladeCfg({ gPolar: true, D: 90 });
+  assert.equal(dial.root, null);
+  const svg = svgDoc(gnomonSheet(dial, { s, t, place: 'x', dateStr: 'x' }));
+  const [blade] = pts(svg, /<polygon class="cut" points="([^"]+)"/g);
+  assert.ok(Math.min(...blade.map((p) => p[0])) > 25 + 100, 'blade starts to the right of the wrapped text');
+  assert.ok(svg.includes(t('noPolar').split(' ')[0]));
+});
+
+test('gBlade survives the URL-hash round trip; includeRoot=false skips the blade headroom', () => {
+  const { s } = bladeCfg();
+  const back = sanitize(Object.fromEntries(new URLSearchParams(serializeState(s)))).s;
+  assert.deepEqual([back.gPolar, back.gRod, back.gBlade], [false, false, true]);
+  const L = (c) => bladeCfg({ includeRoot: false, ...c }).dial.L;
+  assert.equal(L({}), L({ gBlade: false, gRod: true }), 'no headroom reserved when includeRoot is off');
+});
+
+test('English and Italian have exactly the same string keys', () => {
+  const en = Object.keys(STRINGS.en).sort(), it = Object.keys(STRINGS.it).sort();
+  assert.deepEqual(en.filter((k) => !it.includes(k)), [], 'missing in Italian');
+  assert.deepEqual(it.filter((k) => !en.includes(k)), [], 'missing in English');
 });

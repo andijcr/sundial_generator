@@ -71,6 +71,7 @@ function writeControls() {
     else if (document.activeElement !== el) el.value = typeof v === 'number' ? +v.toFixed(4) : v;
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
+  $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('#facesAz').textContent = `${((180 + state.D + 360) % 360).toFixed(1)}° (N→E)`;
   $('#frontWrap').hidden = !state.v2d;
   $('#v3dWrap').hidden = !state.v3d;

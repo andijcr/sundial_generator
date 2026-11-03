@@ -82,3 +82,4 @@ figure { margin: 0; background: var(--panel); border: 1px solid var(--line); bor
 html[lang="en"] [data-lang="en"], html[lang="it"] [data-lang="it"] { display: block; }
 .foot { padding: 12px 16px 24px; color: var(--muted); font-size: 0.82rem; }
 .foot a { color: inherit; }
+label.chk:has(input:disabled) { color: var(--muted); }
