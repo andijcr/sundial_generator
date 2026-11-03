@@ -80,7 +80,7 @@ function writeControls() {
     else if (document.activeElement !== el) el.value = typeof v === 'number' ? +v.toFixed(4) : v;
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
-  $('[data-k="rodX"]').disabled = !state.gRod; // an oversized rod is a rod
+  $('[data-k="rodX"]').disabled = !state.gRod && !state.gPolar; // it lengthens the rod and the style edge
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
   $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;

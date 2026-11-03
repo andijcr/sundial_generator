@@ -148,6 +148,10 @@ export function shadowMarkup(dial, ctx, S, trail) {
     if (ctx.s.gPolar && dial.root) {
       out += `<polygon points="${X(dial.root)},${Y(dial.root)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
     }
+    if (ctx.s.gPolar && dial.root && ctx.s.rodX > 1) { // the extended style edge casts the same hour line on, past the nodus's shadow
+      const k = ctx.s.rodX, E = [dial.root[0] + k * (Sc[0] - dial.root[0]), dial.root[1] + k * (Sc[1] - dial.root[1])];
+      out += `<line x1="${X(Sc)}" y1="${Y(Sc)}" x2="${X(E)}" y2="${Y(E)}" stroke="rgba(20,20,30,0.45)" stroke-width="${f(Math.max(dial.L * 0.025, 1.5))}" stroke-linecap="round"/>`;
+    }
     if (ctx.s.gBlade) {
       const A = [0, bladeHeight(dial.L)];
       out += `<polygon points="${X(A)},${Y(A)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
@@ -308,9 +312,19 @@ export function gnomonSheet(dial, ctx) {
     const a = Math.hypot(dial.root[0], dial.root[1]);
     const hyp = Math.hypot(a, L);
     const SH = Math.atan2(L, a) * 180 / Math.PI;
-    const ox = x, oy = top + L + 10; // R' at (ox, oy)
+    const kP = s.rodX > 1 ? s.rodX : 1; // oversized: the style edge goes on past the nodus, which stays marked by a notch
+    const ox = x, oy = top + kP * L + 10; // R' at (ox, oy)
     const tb = Math.min(TAB, a / 4);
-    let g = `<polygon class="cut" points="${f(ox)},${f(oy)} ${f(ox + a)},${f(oy)} ${f(ox + a)},${f(oy - L)}"/>`;
+    const d = [a / hyp, -L / hyp], nIn = [L / hyp, a / hyp]; // along the style edge (up and right); normal into the triangle (down and right)
+    const ex = ox + a + (kP - 1) * a, ey = oy - L - (kP - 1) * L; // far end of the extended edge
+    const AW = 5, ND = 2.5; // arm width, notch depth
+    let g;
+    if (kP > 1 && a > 3 * AW) {
+      const P = (px, py) => `${f(px)},${f(py)}`, Nx = ox + a, Ny = oy - L, sq = AW * L / a; // sq: the arm's lower edge meets the vertical side that far below N
+      g = `<polygon class="cut" points="${P(ox, oy)} ${P(Nx - 3 * d[0], Ny - 3 * d[1])} ${P(Nx + ND * nIn[0], Ny + ND * nIn[1])} ${P(Nx + 3 * d[0], Ny + 3 * d[1])} ${P(ex, ey)} ${P(ex + AW * nIn[0], ey + AW * nIn[1])} ${P(Nx, Ny + sq * hyp / L)} ${P(Nx, oy)}"/>`;
+    } else {
+      g = `<polygon class="cut" points="${f(ox)},${f(oy)} ${f(ox + a)},${f(oy)} ${f(ox + a)},${f(oy - L)}"/>`;
+    }
     g += `<polygon class="cut" points="${f(ox)},${f(oy)} ${f(ox + a)},${f(oy)} ${f(ox + a - tb)},${f(oy + tb)} ${f(ox + tb)},${f(oy + tb)}"/>`;
     g += `<path class="fold" d="M${f(ox)} ${f(oy)}H${f(ox + a)}"/>`;
     const r = Math.min(a, L, 60) * 0.35;
@@ -327,14 +341,20 @@ export function gnomonSheet(dial, ctx) {
     }
     g += `<text class="dt" x="${f(ox - 3)}" y="${f(oy + 1)}" style="text-anchor:end">R</text>`;
     g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy + 4)}" style="text-anchor:start">F</text>`;
-    g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy - L - 2)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
+    if (kP > 1) g += `<text class="dt" x="${f(ox + a - 6)}" y="${f(oy - L - 4)}" style="text-anchor:end">N (${esc(t('nodus'))}) = ${esc(t('rodNotch'))}</text>`; // the arm leaves to the right of N
+    else g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy - L - 2)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
     g += `<circle cx="${f(ox + a)}" cy="${f(oy - L)}" r="1" class="nodus"/>`;
     g += `<text class="dt" x="${f(ox + a / 2)}" y="${f(oy + tb / 2 + 1)}">${esc(t('tab'))}</text>`;
     g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 20)}" style="text-anchor:start">${esc(t('wallEdge'))}</text>`;
-    inner += g;
-    x += a + 36;
-    right = Math.max(right, ox + a + 24);
     H = Math.max(H, oy + tb + 27); // the bottom of the captions under the tab
+    if (kP > 1) {
+      const lines = wrapText(t('polarLongNote', kP), 60);
+      g += textLines(ox, oy + tb + 31, lines, 3.2);
+      H = Math.max(H, oy + tb + 31 + lines.length * 3.2 * 1.45);
+    }
+    inner += g;
+    x += kP * a + 36;
+    right = Math.max(right, ox + a + 24, kP > 1 ? ex + 14 : 0);
   } else if (s.gPolar) {
     const lines = wrapText(t('noPolar'), 40);
     inner += textLines(M, top + 8, lines, 4);
