@@ -108,6 +108,8 @@
         <label class="chk"><input type="checkbox" data-k="gPolar"> <span data-i18n="gPolar"></span></label>
         <label class="chk"><input type="checkbox" data-k="gRod"> <span data-i18n="gRod"></span></label>
         <label class="chk"><input type="checkbox" data-k="gBlade"> <span data-i18n="gBlade"></span></label>
+        <label><span data-i18n="rodX"></span>
+          <select data-k="rodX"><option value="1">×1</option><option value="2">×2</option><option value="3">×3</option><option value="5">×5</option></select></label>
       </fieldset>
     </details>
 
@@ -153,6 +155,7 @@
           <select data-k="paper"><option value="none" data-i18n="paperNone"></option><option value="A4">A4</option><option value="A3">A3</option><option value="A2">A2</option></select></label>
         <label><span data-i18n="overlap"></span><input type="number" data-k="overlap" min="0" max="60" step="1"></label>
       </div>
+      <button type="button" id="fitPage" data-i18n="fitPage"></button>
       <div class="row2">
         <label><span data-i18n="orient"></span>
           <select data-k="orient"><option value="auto" data-i18n="orientAuto"></option><option value="portrait" data-i18n="orientPortrait"></option><option value="landscape" data-i18n="orientLandscape"></option></select></label>
