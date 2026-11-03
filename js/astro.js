@@ -106,8 +106,13 @@ function nthSunday(y, m, n) {
 
 export const DST_RULES = ['EU', 'US', 'AU', 'none'];
 
-/** Minutes to add to apparent solar time (before EoT) to get zone standard time. */
-export const lonCorrection = (lon, tz) => -4 * (lon - 15 * tz);
+/**
+ * Minutes to add to apparent solar time (before EoT) to get zone standard time.
+ * The longitude difference is wrapped to ±180°: east of the date line a zone can sit
+ * "the other way round" (Samoa: lon -172°, UTC+13, zone meridian 195° = -165°), and
+ * the raw difference would be 360° off, i.e. 24 hours.
+ */
+export const lonCorrection = (lon, tz) => -4 * norm180(lon - 15 * tz);
 
 /** Format minutes after midnight as HH:MM (wraps around 24 h, rounds to the minute). */
 export function fmtHM(min) {

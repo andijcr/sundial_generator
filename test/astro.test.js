@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { solarParams, sunAt, isDst, civilFromUtc, utcFromCivil, sunsetHourAngle, sunVector } from '../js/astro.js';
+import { solarParams, sunAt, isDst, civilFromUtc, utcFromCivil, sunsetHourAngle, sunVector, lonCorrection } from '../js/astro.js';
+import { DEFAULTS, sanitize, buildDial } from '../js/state.js';
+import { infoSheet, svgDoc } from '../js/svg.js';
+import { makeT } from '../js/i18n.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 
@@ -52,4 +55,43 @@ test('civil time round trip', () => {
     assert.deepEqual([c.y, c.mo, c.d, c.h, c.mi], [y, mo, d, h, mi]);
   }
   assert.equal(civilFromUtc(Date.UTC(2026, 6, 15, 14, 30), 1, 'EU').h, 16, 'CEST = UTC+2');
+});
+
+// ---- longitude correction, including zones east/west of the date line ----
+
+const PLACES = [ // name, lat, lon, standard UTC offset
+  ['Rome', 41.9, 12.5, 1], ['Apia (Samoa)', -13.8, -171.8, 13], ['Kiritimati', 1.9, -157.4, 14], ['Suva (Fiji)', -18.1, 178.4, 12],
+  ['Auckland', -36.8, 174.8, 12], ['Honolulu', 21.3, -157.9, -10], ['Pago Pago', -14.3, -170.7, -11], ['Anchorage', 61.2, -149.9, -9],
+];
+
+test('lonCorrection is wrapped across the date line', () => {
+  const want = { 'Rome': 10, 'Apia (Samoa)': 27.2, 'Kiritimati': 29.6, 'Suva (Fiji)': 6.4, 'Honolulu': 31.6 };
+  for (const [name, , lon, tz] of PLACES) {
+    const c = lonCorrection(lon, tz);
+    assert.ok(Math.abs(c) < 120, `${name}: ${c} min is not plausible for a place inside its own zone`);
+    if (name in want) near(c, want[name], 0.05, name);
+  }
+  for (let lon = -180; lon <= 180; lon += 7) for (let tz = -12; tz <= 14; tz++) {
+    assert.ok(Math.abs(lonCorrection(lon, tz)) <= 720 + 1e-9, `lon ${lon} tz ${tz}`); // never more than 12 h
+  }
+});
+
+test('true solar noon on the clock matches 12:00 + lonCorrection − EoT, worldwide', () => {
+  for (const [name, lat, lon, tz] of PLACES) {
+    const day = Date.UTC(2027, 0, 15);
+    let best = null;
+    for (let m = 0; m < 1440; m++) { const a = sunAt(day + m * 60000, lat, lon); if (!best || a.alt > best.alt) best = { alt: a.alt, m, eot: a.eot }; }
+    const c = civilFromUtc(day + best.m * 60000, tz, 'none');
+    const clock = c.h * 60 + c.mi;
+    const predicted = 720 + lonCorrection(lon, tz) - best.eot;
+    const diff = Math.abs(((clock - predicted + 720) % 1440 + 1440) % 1440 - 720);
+    assert.ok(diff < 2.5, `${name}: solar noon at ${clock} min on the clock, predicted ${predicted.toFixed(1)}`);
+  }
+});
+
+test('the info sheet at the date line has no multi-hour corrections', () => {
+  const { s } = sanitize({ ...DEFAULTS, lat: -13.8, lon: -171.8, tz: 13, dst: 'none', D: 135 });
+  const t = makeT('en');
+  const svg = svgDoc(infoSheet(buildDial(s, t), { s, t, place: 'Apia', dateStr: 'x' }));
+  assert.ok(!/[+−]\d{3,} m/.test(svg), 'no three-digit minute values in the correction table');
 });

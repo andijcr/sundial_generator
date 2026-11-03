@@ -123,6 +123,7 @@ function update() {
   updateTiles();
   time.trail = [];
   saveHash();
+  refreshMeasure();
   renderTime();
 }
 
@@ -263,6 +264,7 @@ function bindTime() {
 }
 
 // ---------------- wall measuring helpers ----------------
+let refreshMeasure = () => {}; // set by bindMeasure; update() calls it when the place or time zone changes
 function bindMeasure() {
   const now = civilFromUtc(Date.now(), state.tz, state.dst);
   $('#mDate').value = `${now.y}-${pad2(now.mo + 1)}-${pad2(now.d)}`;
@@ -283,6 +285,8 @@ function bindMeasure() {
   for (const id of ['#mDate', '#mTime', '#mBeta', '#mBearing', '#mMagDecl']) $(id).addEventListener('input', calc);
   $('#mShadowApply').addEventListener('click', () => { if (shadowD !== null) { state.D = Math.round(shadowD * 10) / 10; update(); } });
   $('#mCompassApply').addEventListener('click', () => { state.D = Math.round(compassD * 10) / 10; update(); });
+  // the shadow result depends on lat/lon/tz/dst: without this it kept the old place's value after a change
+  refreshMeasure = calc;
   calc();
 }
 
