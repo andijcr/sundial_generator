@@ -16,7 +16,8 @@ Wall sundial generator: a static, dependency-free page that simulates a vertical
 - The wall's `D` in state, the UI and the URL is measured from the *equator-facing* direction (south in the north, north in the south), west positive. `dial.js` wants D from due south. Convert with `absoluteDeclination(lat, D)` at the boundary (`buildDial`, the 3D view yaw, the "faces" text) and never pass state `D` straight to `computeDial`/`autoFit`. Outside |lat| < 23.44° (`TROPIC_LAT`) only |D| ≤ 90° is allowed (`wallLimit`, enforced by `sanitize`).
 - Vectors are `[east, north, up]`. Wall declination D from south (what `wallFrame` and `dial.js` use): 0 faces south, positive turns west (45 = SW, 180 = north). Hour angle H is 0 at apparent noon and positive in the afternoon. EoT is apparent minus mean time.
 - Dial coordinates are millimetres, origin at F, x to the right when facing the wall, y up. SVG y points down, so draw at `P.fy - y`.
-- Print sheets use real units (1 user unit = 1 mm); keep `width`/`height` in `mm`.
+- Print sheets use real units (1 user unit = 1 mm); keep `width`/`height` in `mm`. Never scale a plan to fit a page: `tileLayout` (`svg.js`) is the single place that plans pages (orientation, the printer margin, balanced tiles, the 7 mm header strip for the page label). Sheet sizes follow their content (`faceMargins`, the 190 mm info sheet, the gnomon sheet's estimated `right` edge), and label widths are *estimated*, so after changing what a sheet draws, render it and measure the free space around the ink (Playwright screenshot, find the non-white bounding box) in both languages and with small and large plates.
+- Ink: `ink: 'bw'` goes through `dialCss(material, sw, bw)` and `sheetCss(bw)`. Every new line family needs an entry in `BW_STYLE` (a distinct dash pattern: black only, no colour), and sheet markup must take its colours from CSS classes, not attributes (the black-and-white test fails on any colour).
 - Settings live in `DEFAULTS` (`state.js`), and the URL hash stores only values that differ from it. `sanitize` clamps numbers and validates enums. Never put a URL-derived string into HTML or `document.write` without escaping or validating it (`place` is checked against `PRESETS` for this reason).
 - Keep the gnomon types in sync: at least one of `gPolar`, `gRod`, `gBlade` is always on (`sanitize` restores the rod). Warnings about the style root only apply when `gPolar` is on.
 
@@ -32,13 +33,18 @@ Wall sundial generator: a static, dependency-free page that simulates a vertical
 Unit tests do not catch overlapping or misplaced labels. Render the sheets and the page with the pre-installed Playwright/Chromium and look at the screenshots, in both languages and with small and large plates.
 
 ## Gotchas
-- Element ids must be unique across the control panel and the SVG: a checkbox once collided with the SVG trail group. Scope lookups, e.g. `#front #trail`.
+- Element ids must be unique across the control panel and the SVG: a checkbox once collided with the SVG trail group. Scope lookups, e.g. `#front #trail`. The same goes for the pages of one print job: clip-path ids include the sheet name, because several sheets share one document.
 - `assert.deepEqual` treats `-0` and `0` as different.
 - Do not use `pkill -f <pattern>` in the shell tool: it can match its own shell. Kill by port or pid.
 - Options that only matter alongside others must not be silent no-ops: disable the control in `writeControls` (`app.js`) and say why in its label (`hExtend` needs `gPolar`; `hDstLabels` needs zone-time lines or figure-8s, see `dstLabelsApply` in `state.js`).
 - Auto-fit ignores sun within `grazing` degrees of the wall plane, so late-morning/low sun shadows can fall off the plate by design.
+- To undo an experiment (a mutation check, say), copy the file aside and copy it back. `git checkout <file>` also throws away your uncommitted edits to it, which once cost a rewrite.
+- `git fetch` can stall behind the proxy: run it as `timeout 90 git fetch origin <branch>`, kill a hung one by pid, and retry.
 
 ## Workflow
-- Default branch `main`. Work on a feature branch and open a PR; never push to `main` directly.
+- Default branch `main`. Work on a feature branch (`claude/<topic>`; creating and pushing these works) and open a PR; never push to `main` directly. Check that the repo has pull requests switched on if creating one fails.
+- The live site is https://andijcr.github.io/sundial_generator/ (plans in `/plans/`). `.github/workflows/pages.yml` runs the tests and deploys `_site/` on every push to `main`, so a merge is online within a minute; check the run before saying it is live.
 - `.github/workflows/preview.yml` runs the tests and uploads the site plus sample plans as an artifact on every PR.
-- `.github/workflows/pages.yml` deploys `_site/` to GitHub Pages on every push to `main` (Settings → Pages → Source: GitHub Actions).
+- PRs are **squash-merged**, so `main` stays linear. Wait for the `build` check on the current head before merging.
+- **Stacked PRs** (each depends on the previous): base a PR on the previous branch, merge them in order, and after each squash merge retarget the next PR to `main` (`base`). A squash leaves copies of the lower commits on `main` that clash with the originals still in the stacked branch, so the next PR can report a conflict. When `git diff origin/main <previous branch tip>` is empty (nothing on `main` that the branch lacks), `git merge -s ours origin/main` on the branch and a normal push fixes it, and the diff shows only the PR's own change again. Unpushed branches above a merged one are replayed with `git rebase --onto origin/main <old base tip> <branch>`, with the tests rerun on each.
+- A PR description ends with the attribution lines the session gives; each commit ends with its `Co-Authored-By` and `Claude-Session` trailers.

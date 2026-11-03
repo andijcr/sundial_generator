@@ -47,7 +47,7 @@ export const DEFAULTS = {
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false,
   xItalian: false, xBabylonian: false, xAzimuth: false, xAltitude: false, xSubstyle: true, xInfo: true, motto: '',
-  material: 'paper', paper: 'none', overlap: 10,
+  material: 'paper', paper: 'none', overlap: 10, orient: 'auto', printMargin: 8, ink: 'color',
   v2d: true, v3d: true,
 };
 
@@ -55,7 +55,7 @@ export const DEFAULTS = {
 export const BOUNDS = {
   lat: [-66, 66], lon: [-180, 180], tz: [-12, 14], D: [-180, 180],
   plateW: [50, 5000], plateH: [50, 5000], L: [2, 3000], fx: [-10000, 10000], fy: [-10000, 10000],
-  grazing: [1, 40], overlap: [0, 60],
+  grazing: [1, 40], overlap: [0, 60], printMargin: [0, 30],
 };
 
 /** Coerce types, clamp to bounds. Returns { s, warnings }. */
@@ -84,6 +84,9 @@ export function sanitize(input) {
   const lim = wallLimit(s.lat);
   if (Math.abs(s.D) > lim) { s.D = Math.sign(s.D) * lim; warnings.push(['wallClamped']); }
   if (!['paper', 'tile', 'laser'].includes(s.material)) s.material = 'paper';
+  if (!['auto', 'portrait', 'landscape'].includes(s.orient)) s.orient = 'auto';
+  if (!['color', 'bw'].includes(s.ink)) s.ink = 'color';
+  if (!['none', 'A4', 'A3', 'A2'].includes(s.paper)) s.paper = 'none';
   if (!DST_RULES.includes(s.dst)) s.dst = 'none';
   if (!Object.hasOwn(PRESETS, s.place)) s.place = 'custom';
   if (!['en', 'it'].includes(s.lang)) s.lang = 'en';

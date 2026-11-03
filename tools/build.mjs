@@ -30,6 +30,7 @@ const variants = {
   'rome-sw-blade': { gPolar: false, gRod: false, gBlade: true },
   'london-south': { place: 'london', ...PRESETS.london, D: 0 },
   'sydney-nw': { place: 'sydney', ...PRESETS.sydney, D: 45 }, // D is measured from the equator side: 45° west of north
+  'rome-sw-bw-a3': { ink: 'bw', paper: 'A3', printMargin: 6 }, // black and white, split into A3 pages (orientation chosen automatically)
 };
 
 const plans = join(out, 'plans');
@@ -48,7 +49,7 @@ for (const [name, v] of Object.entries(variants)) {
     index.push(file);
   }
   if (s.paper !== 'none') {
-    for (const tile of tileSheets(sheets[0], s.paper, s.overlap, `${name} face`)) {
+    for (const tile of tileSheets(sheets[0], s.paper, s.overlap, `${name} face`, { orient: s.orient, margin: s.printMargin })) {
       const file = `${name}-${tile.name}.svg`;
       writeFileSync(join(plans, file), tile.svg);
       index.push(file);

@@ -2,7 +2,7 @@
 
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
-import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileName } from './svg.js';
+import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, tileName } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -316,16 +316,35 @@ function download(name, text) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+const tileOpts = () => ({ orient: state.orient, margin: state.printMargin });
 function currentTiles() {
   if (state.paper === 'none') return [];
-  return tileSheets(faceSheet(dial, ctx()), state.paper, state.overlap, `${t('sheetFace')} ${PRESETS[state.place]?.name || ''}`);
+  return tileSheets(faceSheet(dial, ctx()), state.paper, state.overlap, `${t('sheetFace')} ${PRESETS[state.place]?.name || ''}`, tileOpts());
+}
+// everything to print: the dial's pages, then the gnomon template and the info sheet (each normally one page)
+function allPages() {
+  const c = ctx(), nm = PRESETS[state.place]?.name || '';
+  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheet(dial, c), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')]]
+    .flatMap(([sheet, label]) => tileSheets(sheet, state.paper, state.overlap, label, tileOpts()));
 }
 // only the page grid is computed here; the SVGs are built when a button is clicked
 function updateTiles() {
-  const box = $('#tiles');
-  const { W, H } = faceSheetSize(dial);
-  const lay = tileLayout(W, H, state.paper, state.overlap);
-  if (!lay) { box.innerHTML = ''; return; }
+  const box = $('#tiles'), info = $('#printInfo');
+  const none = state.paper === 'none';
+  for (const k of ['overlap', 'orient', 'printMargin']) $(`[data-k="${k}"]`).disabled = none; // they only matter with a paper size
+  if (none) { info.textContent = t('printNone'); box.innerHTML = ''; return; }
+  const { W, H } = faceSheetSize(dial, state);
+  const lay = tileLayout(W, H, state.paper, state.overlap, tileOpts());
+  if (!lay) { info.textContent = t('printTooSmall'); box.innerHTML = ''; return; }
+  const oname = (o) => t(o === 'portrait' ? 'orientPortrait' : 'orientLandscape');
+  let msg = lay.pages === 1 ? t('printOne', state.paper, oname(lay.orient)) : t('printMany', state.paper, oname(lay.orient), lay.nx, lay.ny, lay.pages);
+  if (state.orient !== 'auto') { // a forced orientation can cost pages: say so
+    const best = tileLayout(W, H, state.paper, state.overlap, { margin: state.printMargin });
+    if (best && best.pages < lay.pages) msg += t('printBetter', oname(best.orient), best.pages);
+  }
+  const save = tileSavings(W, H, lay); // a small trim that removes a whole row or column of pages
+  if (save) msg += t('printTrim', save.mm.toFixed(1), t(save.axis === 'W' ? 'trimNarrow' : 'trimLow'), save.pages);
+  info.textContent = msg;
   const btns = [];
   for (let j = 0; j < lay.ny; j++) for (let i = 0; i < lay.nx; i++) btns.push(`<button type="button" data-tile="${btns.length}">${tileName('', i, j).slice(1)}</button>`);
   box.innerHTML = `<span>${t('tilesFor')} (${btns.length}):</span>${btns.join('')}<button type="button" id="printTiles">${t('printTiles')}</button>`;
@@ -335,18 +354,24 @@ function bindDownloads() {
   $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheet(dial, ctx()))));
   $('#dlInfo').addEventListener('click', () => download(`${base()}-info.svg`, svgDoc(infoSheet(dial, ctx()))));
   $('#tiles').addEventListener('click', (e) => {
-    const tiles = currentTiles();
     const b = e.target.closest('button');
     if (!b) return;
     if (b.id === 'printTiles') {
+      const pages = allPages();
+      if (!pages.length) return;
       const w = window.open('', '_blank');
       if (!w) return;
-      const { pw, ph } = tiles[0];
-      w.document.write(`<!doctype html><title>${esc(base())} pages</title><style>@page{size:${pw}mm ${ph}mm;margin:0}body{margin:0}.pg{width:${pw}mm;height:${ph}mm;break-after:page;overflow:hidden}.pg svg{display:block;width:${pw}mm;height:${ph}mm}</style>` +
-        tiles.map((tl) => `<div class="pg">${tl.svg.replace(/^<\?xml[^>]*>\s*/, '')}</div>`).join('') + '<script>onload=()=>print()<\/script>');
+      // each page asks for its own paper size (named pages), so a landscape dial and a portrait info sheet can share one job
+      const sizes = [...new Set(pages.map((p) => `${p.pw}x${p.ph}`))];
+      const css = `@page{size:${pages[0].pw}mm ${pages[0].ph}mm;margin:0}` +
+        sizes.map((z) => { const [pw, ph] = z.split('x'); return `@page p${z}{size:${pw}mm ${ph}mm;margin:0}`; }).join('') +
+        'html,body{margin:0}.pg{break-after:page;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pg svg{display:block}';
+      w.document.write(`<!doctype html><title>${esc(base())} pages</title><style>${css}</style>` +
+        pages.map((p) => `<div class="pg" style="page:p${p.pw}x${p.ph};width:${p.pw}mm;height:${p.ph}mm">${p.svg.replace(/^<\?xml[^>]*>\s*/, '')}</div>`).join('') + '<script>onload=()=>print()<\/script>');
       w.document.close();
       return;
     }
+    const tiles = currentTiles();
     const tl = tiles[Number(b.dataset.tile)];
     if (tl) download(`${base()}-${tl.name}.svg`, tl.svg);
   });
