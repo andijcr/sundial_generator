@@ -249,8 +249,9 @@ function faceMargins(dial, s) {
     left = Math.max(left, 8 - R[0]);
     top = Math.max(top, 6 - R[1]);
   }
-  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: 74 };
-  m.R = Math.max(m.R, 200 - P.w - m.L); // the title block is about 170 mm wide
+  const brief = !!s.faceBrief; // short caption: two lines, no scale bar (the plate's own dimensions are the scale)
+  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: brief ? 50 : 74 };
+  m.R = Math.max(m.R, (brief ? 130 : 200) - P.w - m.L); // the title block is about 170 mm wide, the short caption 120
   return m;
 }
 
@@ -286,6 +287,11 @@ export function faceSheet(dial, ctx) {
   let inner = `<g transform="translate(${ML},${MT})">${g}</g>`;
   // title block
   const ty = MT + P.h + 36;
+  if (s.faceBrief) {
+    inner += textLines(ML, ty - 2, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
+      `${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)}`], 3.6);
+    return { W, H, inner, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw' };
+  }
   inner += textLines(ML, ty, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true }, ...summaryLines(dial, ctx),
     `F: ${t('foot').replace(/^F: /, '')}${dial.root && s.gPolar ? ` · R: ${t('root').replace(/^R: /, '')} (${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)}) mm` : ''}`,
     `${t('generated')}: ${ctx.dateStr || ''}`], 3.6);

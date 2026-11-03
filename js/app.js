@@ -3,7 +3,7 @@
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
 import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
-import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, serializeState, dstLabelsApply } from './state.js';
+import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
 
@@ -350,7 +350,7 @@ function printJob() {
 function updateTiles() {
   const box = $('#tiles'), info = $('#printInfo');
   const none = state.paper === 'none';
-  $('#fitPage').disabled = none;
+  $('#fitPage').disabled = $('#fitGnomon').disabled = none;
   for (const k of ['overlap', 'orient', 'printMargin']) $(`[data-k="${k}"]`).disabled = none; // they only matter with a paper size
   if (none) { info.textContent = t('printNone'); box.innerHTML = ''; return; }
   const { W, H } = faceSheetSize(dial, state);
@@ -375,6 +375,11 @@ function bindDownloads() {
   $('#fitPage').addEventListener('click', () => {
     const fit = fitPlateToPage(state, t, state.paper, tileOpts());
     if (fit) Object.assign(state, fit); else inputWarnings.push(['fitPageNo']);
+    update();
+  });
+  $('#fitGnomon').addEventListener('click', () => {
+    const fit = fitGnomonToPage(state, t, state.paper, tileOpts());
+    if (fit) Object.assign(state, fit, { auto: false }); else inputWarnings.push(['fitGnomonNo']);
     update();
   });
   $('#dlFace').addEventListener('click', () => download(`${base()}-face.svg`, svgDoc(faceSheet(dial, ctx()))));
