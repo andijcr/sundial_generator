@@ -31,28 +31,49 @@ const LSTYLE = {
 };
 const TCOLOR = { hour: '#1b1b1b', zone: '#1f5fa8', dst: '#a0700b', ana: '#c0392b', date: '#2a7f62', dateMinor: '#2a7f62', ital: '#8e44ad', bab: '#d35400', az: '#666', alt: '#666' };
 
-export function dialCss(material, sw) {
+// Black-and-white print: no colours, so the line families are told apart by weight and dash pattern
+// (the pattern is in multiples of 4·sw). [weight multiplier, dash]
+const BW_STYLE = {
+  hour: [1.6], hourMinor: [0.7], hourExt: [0.5, '2 1.5'],
+  zone: [1.3, '7 2.5'], zoneMinor: [0.6, '7 2.5'], zoneExt: [0.5, '1 2'],
+  anaR: [1], anaF: [1, '3 1.5'], tick: [1],
+  date: [1.1], dateMinor: [0.6, '4 1.5'],
+  ital: [0.8, '9 2 1.5 2'], bab: [0.8, '3 3'],
+  az: [0.5, '1 1.5'], alt: [0.5, '0.6 2.4'],
+  construct: [0.6, '12 3'],
+};
+
+/** CSS for the dial. bw: black-and-white print (no plate fill, black only, families told apart by dashes). */
+export function dialCss(material, sw, bw = false) {
   const laser = material === 'laser';
+  const black = laser || bw;
   let css = laser
     ? `.plate{fill:none;stroke:#f00;stroke-width:0.1}`
-    : `.plate{fill:#fbf6ea;stroke:#3b3b3b;stroke-width:${f(sw * 2)}}`;
-  for (const [k, [c, w, dash]] of Object.entries(LSTYLE)) {
-    css += `.l-${k}{fill:none;stroke:${laser ? '#000' : c};stroke-width:${f(laser ? 0.1 : sw * w)};stroke-linecap:round;stroke-linejoin:round${dash && !laser ? `;stroke-dasharray:${dash.split(' ').map((d) => f(d * sw * 4)).join(' ')}` : ''}}`;
+    : bw ? `.plate{fill:none;stroke:#000;stroke-width:${f(sw * 2)}}`
+      : `.plate{fill:#fbf6ea;stroke:#3b3b3b;stroke-width:${f(sw * 2)}}`;
+  for (const [k, [c, w, d]] of Object.entries(LSTYLE)) {
+    const [wm, dash] = bw && !laser ? BW_STYLE[k] : [w, d];
+    css += `.l-${k}{fill:none;stroke:${black ? '#000' : c};stroke-width:${f(laser ? 0.1 : sw * wm)};stroke-linecap:round;stroke-linejoin:round${dash && !laser ? `;stroke-dasharray:${dash.split(' ').map((x) => f(x * sw * 4)).join(' ')}` : ''}}`;
   }
   css += `.t{font-family:${material === 'tile' ? 'Georgia,serif' : 'Helvetica,Arial,sans-serif'};text-anchor:middle;dominant-baseline:central}`;
-  for (const [k, c] of Object.entries(TCOLOR)) css += `.t-${k}{fill:${laser ? '#000' : c}}`;
-  css += `.mark{fill:none;stroke:${laser ? '#000' : '#333'};stroke-width:${f(laser ? 0.1 : sw * 1.2)}}`;
-  css += `.info{fill:${laser ? '#000' : '#555'};font-family:Helvetica,Arial,sans-serif}.motto{fill:${laser ? '#000' : '#333'};font-family:Georgia,serif;font-style:italic;text-anchor:middle}`;
+  for (const [k, c] of Object.entries(TCOLOR)) css += `.t-${k}{fill:${black ? '#000' : c}}`;
+  if (bw && !laser) css += '.t-dst{font-style:italic}'; // summer-time numbers lose their amber: set them in italics
+  css += `.mark{fill:none;stroke:${black ? '#000' : '#333'};stroke-width:${f(laser ? 0.1 : sw * 1.2)}}`;
+  css += `.info{fill:${black ? '#000' : '#555'};font-family:Helvetica,Arial,sans-serif}.motto{fill:${black ? '#000' : '#333'};font-family:Georgia,serif;font-style:italic;text-anchor:middle}`;
   return css;
 }
 
-const SHEET_CSS = `.dim{stroke:#444;stroke-width:0.25;fill:none}.dimx{stroke:#444;stroke-width:0.18;fill:none}
-.dt{font-family:Helvetica,Arial,sans-serif;font-size:3.5px;fill:#222;text-anchor:middle}
-.st{font-family:Helvetica,Arial,sans-serif;fill:#222}.sb{font-weight:bold}
-.cut{fill:#f3efe4;stroke:#000;stroke-width:0.35}.fold{stroke:#000;stroke-width:0.3;stroke-dasharray:3 2;fill:none}
-.reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:#999;stroke-width:0.2;stroke-dasharray:2 2;fill:none}`;
+/** CSS shared by the print sheets (dimensions, text, cut-outs, page frames). */
+function sheetCss(bw) {
+  const ink = bw ? '#000' : '#444', text = bw ? '#000' : '#222';
+  return `.dim{stroke:${ink};stroke-width:0.25;fill:none}.dimx{stroke:${ink};stroke-width:0.18;fill:none}
+.dt{font-family:Helvetica,Arial,sans-serif;font-size:3.5px;fill:${text};text-anchor:middle}
+.st{font-family:Helvetica,Arial,sans-serif;fill:${text}}.sb{font-weight:bold}
+.cut{fill:${bw ? 'none' : '#f3efe4'};stroke:#000;stroke-width:0.35}.fold{stroke:#000;stroke-width:0.3;stroke-dasharray:3 2;fill:none}
+.reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:${bw ? '#000' : '#999'};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${bw ? '#000' : '#c0392b'}}`;
+}
 
-const DEFS = `<defs><marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#444"/></marker></defs>`;
+const defs = (bw) => `<defs><marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${bw ? '#000' : '#444'}"/></marker></defs>`;
 
 function pathD(lines, P) {
   return lines.map((l) => 'M' + l.map(([x, y]) => f(P.fx + x) + ' ' + f(P.fy - y)).join('L')).join('');
@@ -151,7 +172,7 @@ export function trailMarkup(dial, pts) {
 export function svgDoc(sheet) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${f(sheet.W)}mm" height="${f(sheet.H)}mm" viewBox="0 0 ${f(sheet.W)} ${f(sheet.H)}">
-${DEFS}<style>${sheet.css}${SHEET_CSS}</style>
+${defs(sheet.bw)}<style>${sheet.css}${sheetCss(sheet.bw)}</style>
 <rect x="0" y="0" width="${f(sheet.W)}" height="${f(sheet.H)}" fill="#fff"/>
 ${sheet.inner}
 </svg>`;
@@ -205,18 +226,41 @@ function summaryLines(dial, ctx) {
   ];
 }
 
-const FACE_M = { L: 40, T: 35, R: 40, B: 80 };
-/** Size of the face sheet in mm, without rendering it. */
-export function faceSheetSize(dial) {
-  return { W: dial.plate.w + FACE_M.L + FACE_M.R, H: dial.plate.h + FACE_M.T + FACE_M.B };
+const CHAR_W = 2.0; // estimated width of one character of a 3.5 px dimension label, mm
+
+/**
+ * Margins of the face sheet around the plate, sized to what is drawn there (dimension lines, their labels,
+ * the title block) so the sheet is no bigger than it needs to be: every millimetre saved can save a
+ * printed page. Label widths are estimated. A short vertical dimension puts its label to the right of its line.
+ */
+function faceMargins(dial, s) {
+  const P = dial.plate;
+  const R = dial.root && s.gPolar ? [P.fx + dial.root[0], P.fy - dial.root[1]] : null; // style root in plate coords, y down
+  const rightOf = (x, len, text) => x + (Math.abs(len) > 28 ? 2 : 1.5 + text.length * CHAR_W);
+  let right = rightOf(12, P.fy, `F ${mm(P.fy)}`);
+  let left = 17.5, top = 17.8;
+  if (R) {
+    right = Math.max(right, rightOf(24, R[1], `R ${mm(R[1])}`), R[0] - P.w + 8);
+    left = Math.max(left, 8 - R[0]);
+    top = Math.max(top, 6 - R[1]);
+  }
+  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: 74 };
+  m.R = Math.max(m.R, 200 - P.w - m.L); // the title block is about 170 mm wide
+  return m;
+}
+
+/** Size of the face sheet in mm, without rendering it. s: the settings (is the triangular style drawn?). */
+export function faceSheetSize(dial, s = { gPolar: true }) {
+  const m = faceMargins(dial, s);
+  return { W: dial.plate.w + m.L + m.R, H: dial.plate.h + m.T + m.B };
 }
 
 export function faceSheet(dial, ctx) {
   const { s, t } = ctx;
   const P = dial.plate;
   const { sw } = sizesFor(s.material, P);
-  const { L: ML, T: MT, R: MR } = FACE_M;
-  const { W, H } = faceSheetSize(dial);
+  const { L: ML, T: MT, R: MR } = faceMargins(dial, s);
+  const { W, H } = faceSheetSize(dial, s);
   let g = dialMarkup(dial, ctx);
   if (s.material !== 'laser') {
     g += `<path class="l-construct" d="M${f(P.fx)} 0V${f(P.h)}"/>`;
@@ -247,13 +291,14 @@ export function faceSheet(dial, ctx) {
   bar += `<text class="dt" x="${sx}" y="${sy - 5.5}">0</text><text class="dt" x="${sx + 50}" y="${sy - 5.5}">50</text><text class="dt" x="${sx + 100}" y="${sy - 5.5}">100 mm</text>`;
   bar += `<text class="dt" x="${sx + 50}" y="${sy + 5}">${esc(t('scale'))}</text>`;
   inner += bar;
-  return { W, H, inner, css: dialCss(s.material, sw), name: 'face' };
+  return { W, H, inner, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw' };
 }
 
 export function gnomonSheet(dial, ctx) {
   const { s, t } = ctx;
-  const L = dial.L, M = 25, TAB = 15;
+  const L = dial.L, M = 14, TAB = 15;
   let inner = '', x = M, H = 0;
+  let right = M + 150; // right edge of the drawing (estimated), so the sheet is no wider than needed; 150 mm for the summary lines
   const top = M + 12;
   inner += textLines(M, M, [{ t: `${t('title')} — ${t('sheetGnomon')}`, b: true }], 5);
   if (s.gPolar && dial.root) {
@@ -271,20 +316,27 @@ export function gnomonSheet(dial, ctx) {
     g += dimH(ox, ox + a, oy + tb + 9, oy + tb, mm(a));
     g += dimV(oy - L, oy, ox + a + 10, ox + a, `L = ${mm(L)}`);
     const mx = ox + a / 2, my = oy - L / 2, ang = -SH;
-    g += `<text class="dt" x="${f(mx - 3)}" y="${f(my - 3)}" transform="rotate(${f(ang)} ${f(mx - 3)} ${f(my - 3)})">${esc(t('styleEdge'))} — ${mm(hyp)}</text>`;
+    const edgeLabel = `${t('styleEdge')} — ${mm(hyp)}`;
+    if (hyp > edgeLabel.length * 1.8 + 10) { // along the edge when it is long enough, else in the caption below
+      g += `<text class="dt" x="${f(mx - 3)}" y="${f(my - 3)}" transform="rotate(${f(ang)} ${f(mx - 3)} ${f(my - 3)})">${esc(edgeLabel)}</text>`;
+    } else {
+      g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 25)}" style="text-anchor:start">${esc(edgeLabel)}</text>`;
+    }
     g += `<text class="dt" x="${f(ox - 3)}" y="${f(oy + 1)}" style="text-anchor:end">R</text>`;
     g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy + 4)}" style="text-anchor:start">F</text>`;
     g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy - L - 2)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
-    g += `<circle cx="${f(ox + a)}" cy="${f(oy - L)}" r="1" fill="#c0392b"/>`;
+    g += `<circle cx="${f(ox + a)}" cy="${f(oy - L)}" r="1" class="nodus"/>`;
     g += `<text class="dt" x="${f(ox + a / 2)}" y="${f(oy + tb / 2 + 1)}">${esc(t('tab'))}</text>`;
-    g += `<text class="dt" x="${f(ox + a / 2)}" y="${f(oy + tb + 20)}">${esc(t('wallEdge'))}</text>`;
+    g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 20)}" style="text-anchor:start">${esc(t('wallEdge'))}</text>`;
     inner += g;
-    x += a + 45;
+    x += a + 36;
+    right = Math.max(right, ox + a + 24);
     H = Math.max(H, oy + tb + 30);
   } else if (s.gPolar) {
     const lines = wrapText(t('noPolar'), 40);
     inner += textLines(M, top + 8, lines, 4);
     x += 100; // keep the blade / rod clear of the text
+    right = Math.max(right, M + 90);
     H = Math.max(H, top + 8 + lines.length * 4 * 1.45 + 12);
   }
   if (s.gBlade) {
@@ -306,7 +358,7 @@ export function gnomonSheet(dial, ctx) {
     }
     g += dimH(bx, bx + L, fy + 9, fy, `L = ${mm(L)}`);
     g += dimV(ay, fy, bx - tb - 10, bx - tb - 1, `h = ${mm(h)}`);
-    g += `<circle cx="${f(bx + L)}" cy="${f(fy)}" r="1" fill="#c0392b"/>`;
+    g += `<circle cx="${f(bx + L)}" cy="${f(fy)}" r="1" class="nodus"/>`;
     g += `<text class="dt" x="${f(bx + L + 3)}" y="${f(fy + 1)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
     if (roomy) {
       g += `<text class="dt" x="${f(bx + 3)}" y="${f(fy - 3)}" style="text-anchor:start">F</text>`;
@@ -322,25 +374,26 @@ export function gnomonSheet(dial, ctx) {
     if (!tabFits) caption.push(t('bladeTabAt'));
     inner += textLines(bx - tb, fy + 22, [...caption, ...wrapText(`${t('blade')}: ${t('bladeNote')}`, 52)], 3.2);
     x += Math.max(TAB + L + 70, 115);
+    right = Math.max(right, bx + L + 24, bx - tb + 90);
     H = Math.max(H, fy + 40);
   }
   if (s.gRod || (s.gPolar && !dial.root)) {
     const EMB = 30, ox = x + 10, oy = top + 10;
     let g = `<rect class="cut" x="${f(ox - 2)}" y="${f(oy)}" width="4" height="${f(L + EMB)}"/>`;
     g += `<path class="fold" d="M${f(ox - 10)} ${f(oy + L)}H${f(ox + 10)}"/>`;
-    g += `<circle cx="${f(ox)}" cy="${f(oy)}" r="1.2" fill="#c0392b"/>`;
+    g += `<circle cx="${f(ox)}" cy="${f(oy)}" r="1.2" class="nodus"/>`;
     g += dimV(oy, oy + L, ox + 14, ox + 2, `L = ${mm(L)}`);
     g += `<text class="dt" x="${f(ox + 6)}" y="${f(oy + L + EMB / 2)}" style="text-anchor:start">${EMB} mm ${esc(t('rodEmbed'))}</text>`;
     g += `<text class="dt" x="${f(ox + 6)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
-    g += `<text class="dt" x="${f(ox - 2)}" y="${f(oy + L + EMB + 6)}" style="text-anchor:start">${esc(t('rod'))}: ${esc(t('rodNote'))}</text>`;
+    g += textLines(ox - 2, oy + L + EMB + 6, wrapText(`${t('rod')}: ${t('rodNote')}`, 38), 3.5);
     inner += g;
-    x += 120;
+    right = Math.max(right, ox + 30, ox - 2 + 38 * 1.9);
     H = Math.max(H, oy + L + EMB + 14);
   }
-  const W = Math.max(x + M, 180);
+  const W = Math.max(Math.ceil(right + 12), 180);
   H += 30;
   inner += textLines(M, H - 18, summaryLines(dial, ctx).slice(0, 3), 3.2);
-  return { W, H, inner, css: '', name: 'gnomon' };
+  return { W, H, inner, css: '', name: 'gnomon', bw: s.ink === 'bw' };
 }
 
 const fmtMin = (m) => {
@@ -352,20 +405,23 @@ const fmtMin = (m) => {
 
 export function infoSheet(dial, ctx) {
   const { s, t } = ctx;
-  const W = 210, H = 297, x = 15;
-  let y = 18;
-  let inner = textLines(x, y, [{ t: `${t('title')} — ${t('sheetInfo')}`, b: true }], 5.5);
+  const W = 190, x = 10; // fits an A4 page inside a typical printer margin; the height follows the content
+  let y = 14;
+  let inner = textLines(x, y, [{ t: `${t('title')} — ${t('sheetInfo')}`, b: true }], 4.8);
   y += 10;
-  inner += textLines(x, y, [{ t: t('params'), b: true }, ...summaryLines(dial, ctx)], 3.4);
-  y += 6 * 3.4 * 1.45;
+  // a block of text, wrapped to the sheet's width (about 170 mm of 3.4 px text); the next block starts below it
+  const block = (lines, gap) => {
+    const wrapped = lines.flatMap((l) => (typeof l === 'string' ? wrapText(l, 88) : [l]));
+    inner += textLines(x, y, wrapped, 3.4);
+    y += wrapped.length * 3.4 * 1.45 + gap;
+  };
+  block([{ t: t('params'), b: true }, ...summaryLines(dial, ctx)], 3.4 * 1.45);
   const a = dial.angles;
-  inner += textLines(x, y, [{ t: t('angles'), b: true },
+  block([{ t: t('angles'), b: true },
     `${t('SH')}: ${a.SH.toFixed(2)}°   ${t('SD')}: ${a.SD.toFixed(2)}°   ${t('DL')}: ${a.DL.toFixed(2)}°   ${t('substyleHour')}: ${fmtHM((12 + a.DL / 15) * 60)}`,
     dial.root ? `R = (${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)}) mm from F (x right, y up); |RF| = ${Math.hypot(...dial.root).toFixed(1)} mm` : t('noPolar'),
-  ], 3.4);
-  y += 4 * 3.4 * 1.45 + 2;
-  inner += textLines(x, y, [{ t: t('stepsTitle'), b: true }, ...t('steps').map((st, i) => `${i + 1}. ${st}`)], 3.4);
-  y += (t('steps').length + 1) * 3.4 * 1.45 + 4;
+  ], 5);
+  block([{ t: t('stepsTitle'), b: true }, ...t('steps').map((st, i) => `${i + 1}. ${st}`)], 4);
   // corrections table
   inner += textLines(x, y, [{ t: t('tableTitle'), b: true }], 3.6);
   y += 7;
@@ -388,52 +444,98 @@ export function infoSheet(dial, ctx) {
       y += 4.6;
     }
   }
-  return { W, H, inner, css: '', name: 'info' };
+  const H = Math.ceil(y + 2);
+  return { W, H, inner, css: '', name: 'info', bw: s.ink === 'bw' };
 }
 
 // ---------------- Tiling ----------------
 
 export const PAPERS = { A4: [210, 297], A3: [297, 420], A2: [420, 594] };
 
-/** Split a sheet into printable pages with overlap and shared registration marks. */
-const PRINT_MARGIN = 8; // unprintable margin, mm
+export const PRINT_MARGIN = 8; // default unprintable margin of a printer, mm
+const PAGE_HEADER = 7; // strip at the top of every page, inside the printable area, for the page label
 
-/** Page grid for a W×H sheet: orientation with the fewest pages. null if no paper. */
-export function tileLayout(W, H, paper, overlap) {
+/** Number of pages needed to cover len mm when a page offers `avail` mm and neighbours overlap by `overlap`. */
+const pagesFor = (len, avail, overlap) => (len <= avail ? 1 : Math.ceil((len - overlap) / (avail - overlap)));
+
+/**
+ * Plan how a W×H mm sheet is cut into pages of a paper size (always 1:1, never scaled).
+ * opts.orient: 'auto' (default: the orientation needing the fewest pages, then wasting the least paper,
+ * then matching the sheet's shape), 'portrait' or 'landscape'. opts.margin: the printer's unprintable margin, mm.
+ * The slack is shared out evenly, so no page is left with a sliver, and each tile is centred in the printable
+ * area below a header strip that carries the page label. A sheet that fits is a single page with no overlap.
+ * Returns null when there is no such paper size or the margins leave no room.
+ */
+export function tileLayout(W, H, paper, overlap, opts = {}) {
   if (!PAPERS[paper]) return null;
-  const pm = PRINT_MARGIN;
+  const pm = clamp(Number.isFinite(opts.margin) ? opts.margin : PRINT_MARGIN, 0, 30);
+  const [a, b] = PAPERS[paper]; // short and long side
+  const orients = opts.orient === 'portrait' || opts.orient === 'landscape' ? [opts.orient] : ['portrait', 'landscape'];
   let best = null;
-  for (const [pw, ph] of [PAPERS[paper], [PAPERS[paper][1], PAPERS[paper][0]]]) {
-    const aw = pw - 2 * pm, ah = ph - 2 * pm, sx = aw - overlap, sy = ah - overlap;
-    const nx = Math.max(1, Math.ceil((W - overlap) / sx)), ny = Math.max(1, Math.ceil((H - overlap) / sy));
-    if (!best || nx * ny < best.nx * best.ny) best = { pw, ph, aw, ah, sx, sy, nx, ny };
+  for (const orient of orients) {
+    const [pw, ph] = orient === 'portrait' ? [a, b] : [b, a];
+    const aw = pw - 2 * pm, ah = ph - 2 * pm - PAGE_HEADER; // room for the drawing on one page
+    if (aw <= overlap + 20 || ah <= overlap + 20) continue;
+    const nx = pagesFor(W, aw, overlap), ny = pagesFor(H, ah, overlap);
+    const c = { orient, pw, ph, aw, ah, nx, ny, pages: nx * ny, waste: nx * ny * aw * ah - W * H, matches: (orient === 'landscape') === (W >= H) };
+    // equal page counts: on one page prefer the orientation that matches the sheet's shape; on several, the one wasting less paper
+    const tieBetter = c.pages === 1 ? c.matches && !best?.matches
+      : c.waste < best?.waste - 1e-6 || (Math.abs(c.waste - best?.waste) <= 1e-6 && c.matches && !best?.matches);
+    const better = !best || c.pages < best.pages || (c.pages === best.pages && tieBetter);
+    if (better) best = c;
   }
-  return best;
+  if (!best) return null;
+  const { nx, ny } = best, ov = best.pages === 1 ? 0 : overlap;
+  const sx = nx === 1 ? W : (W - ov) / nx, sy = ny === 1 ? H : (H - ov) / ny; // step between neighbouring tiles
+  return { ...best, margin: pm, header: PAGE_HEADER, overlap: ov, sx, sy, tw: nx === 1 ? W : sx + ov, th: ny === 1 ? H : sy + ov };
 }
+/**
+ * The cheapest way to save pages: trimming `mm` off the sheet's width ('W') or height ('H') removes a whole
+ * column or row of pages. Only offered when the trim is small (at most 12 % of that side), as {axis, mm, pages}
+ * with pages = how many pages it saves; null if there is nothing worthwhile. lay: a tileLayout result.
+ */
+export function tileSavings(W, H, lay) {
+  if (!lay) return null;
+  const cands = [];
+  if (lay.nx > 1) cands.push({ axis: 'W', excess: W - ((lay.nx - 1) * (lay.aw - lay.overlap) + lay.overlap), len: W, pages: lay.ny });
+  if (lay.ny > 1) cands.push({ axis: 'H', excess: H - ((lay.ny - 1) * (lay.ah - lay.overlap) + lay.overlap), len: H, pages: lay.nx });
+  const ok = cands.filter((c) => c.excess > 0 && c.excess / c.len <= 0.12).sort((a, b) => b.pages / b.excess - a.pages / a.excess);
+  return ok.length ? { axis: ok[0].axis, mm: Math.ceil(ok[0].excess * 10) / 10, pages: ok[0].pages } : null;
+}
+
 export const tileName = (base, i, j) => `${base}-r${j + 1}c${i + 1}`;
 
-export function tileSheets(sheet, paper, overlap, label) {
-  const lay = tileLayout(sheet.W, sheet.H, paper, overlap);
+/**
+ * Cut a sheet into printable pages (see tileLayout for opts). Neighbouring pages overlap, and the alignment
+ * marks sit at the centres of the overlap zones so they coincide on two neighbouring pages.
+ * Returns [{ name, svg, pw, ph, page, pages, orient }].
+ */
+export function tileSheets(sheet, paper, overlap, label, opts = {}) {
+  const lay = tileLayout(sheet.W, sheet.H, paper, overlap, opts);
   if (!lay) return [];
-  const pm = PRINT_MARGIN;
-  const { pw, ph, aw, ah, sx, sy, nx, ny } = lay;
+  const { pw, ph, aw, ah, nx, ny, sx, sy, tw, th, margin: pm, header, orient, overlap: ov, pages } = lay;
   let regs = '';
-  for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {
-    const cx = i * sx + overlap / 2, cy = j * sy + overlap / 2;
-    regs += `<circle class="reg" cx="${f(cx)}" cy="${f(cy)}" r="3"/><path class="reg" d="M${f(cx - 5)} ${f(cy)}H${f(cx + 5)}M${f(cx)} ${f(cy - 5)}V${f(cy + 5)}"/>`;
+  if (pages > 1) {
+    const at = (n, step, len) => (n === 1 ? [ov / 2, len - ov / 2] : Array.from({ length: n + 1 }, (_, k) => k * step + ov / 2));
+    for (const cx of at(nx, sx, sheet.W)) for (const cy of at(ny, sy, sheet.H)) {
+      regs += `<circle class="reg" cx="${f(cx)}" cy="${f(cy)}" r="3"/><path class="reg" d="M${f(cx - 5)} ${f(cy)}H${f(cx + 5)}M${f(cx)} ${f(cy - 5)}V${f(cy + 5)}"/>`;
+    }
   }
+  const px = pm + (aw - tw) / 2, py = pm + header + (ah - th) / 2; // where a tile starts on the page
   const out = [];
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-    const x0 = i * sx, y0 = j * sy;
-    const id = `c${i}_${j}`;
-    const inner = `<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${f(aw)}" height="${f(ah)}"/></clipPath>
+    const x0 = nx === 1 ? 0 : i * sx, y0 = ny === 1 ? 0 : j * sy;
+    const vx = x0 - px, vy = y0 - py; // sheet coordinates of the page's top-left corner
+    const id = `clip-${sheet.name}-${i}-${j}`, page = j * nx + i + 1; // unique across sheets: several are printed in one document
+    const note = `${label} — ${pages > 1 ? `${page}/${pages} (${j + 1}/${ny} · ${i + 1}/${nx}) · ` : ''}${paper} ${orient} · ${ov ? `overlap ${f(ov)} mm · ` : ''}margin ${f(pm)} mm`;
+    const inner = `<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${f(tw)}" height="${f(th)}"/></clipPath>
 <g clip-path="url(#${id})">${sheet.inner}${regs}</g>
-<rect class="tileb" x="${f(x0)}" y="${f(y0)}" width="${f(aw)}" height="${f(ah)}"/>
-<text class="dt" x="${f(x0)}" y="${f(y0 - 3)}" style="text-anchor:start">${esc(label)} — ${j + 1}/${ny} · ${i + 1}/${nx} (row · column), overlap ${overlap} mm</text>`;
+<rect class="tileb" x="${f(x0)}" y="${f(y0)}" width="${f(tw)}" height="${f(th)}"/>
+<text class="dt" x="${f(vx + pm)}" y="${f(vy + pm + 4.5)}" style="text-anchor:start">${esc(note)}</text>`;
     const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${pw}mm" height="${ph}mm" viewBox="${f(x0 - pm)} ${f(y0 - pm)} ${pw} ${ph}">
-${DEFS}<style>${sheet.css}${SHEET_CSS}</style>${inner}</svg>`;
-    out.push({ name: tileName(sheet.name, i, j), svg, pw, ph });
+<svg xmlns="http://www.w3.org/2000/svg" width="${pw}mm" height="${ph}mm" viewBox="${f(vx)} ${f(vy)} ${pw} ${ph}">
+${defs(sheet.bw)}<style>${sheet.css}${sheetCss(sheet.bw)}</style>${inner}</svg>`;
+    out.push({ name: tileName(sheet.name, i, j), svg, pw, ph, page, pages, orient });
   }
   return out;
 }

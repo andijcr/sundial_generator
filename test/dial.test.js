@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
-import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, frontViewSvg, shadowMarkup } from '../js/svg.js';
+import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup } from '../js/svg.js';
 import { fmtHM } from '../js/astro.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -395,4 +395,152 @@ test('buildDial uses the declination from south: a Sydney NW wall equals the 135
   const a = dialAngles(-33.8688, 135);
   near(sydney.angles.SH, a.SH, 1e-9); near(sydney.angles.SD, a.SD, 1e-9); near(sydney.angles.DL, a.DL, 1e-9);
   assert.ok(sydney.stats.litPerDay > 7, `a north-west wall in Sydney is a sunny wall (${sydney.stats.litPerDay.toFixed(1)} h/day)`);
+});
+
+// ---- printing on A4 / A3: orientation, margin, black and white ----
+
+const PAPER_SIDES = { A4: [210, 297], A3: [297, 420] };
+const need = (len, avail, ov) => (len <= avail ? 1 : Math.ceil((len - ov) / (avail - ov)));
+
+test('tileLayout: automatic orientation needs the fewest pages; a forced one is honoured', () => {
+  for (const paper of ['A4', 'A3']) for (const [W, H] of [[670, 546], [400, 300], [1070, 796], [180, 260], [250, 190], [190, 243], [300, 800]]) for (const margin of [0, 8, 15]) {
+    const [a, b] = PAPER_SIDES[paper];
+    const count = (pw, ph) => need(W, pw - 2 * margin, 10) * need(H, ph - 2 * margin - 7, 10); // 7 mm header strip per page
+    const p = count(a, b), l = count(b, a);
+    const auto = tileLayout(W, H, paper, 10, { margin });
+    assert.equal(auto.pages, Math.min(p, l), `${paper} ${W}x${H} margin ${margin}`);
+    const por = tileLayout(W, H, paper, 10, { margin, orient: 'portrait' }), lan = tileLayout(W, H, paper, 10, { margin, orient: 'landscape' });
+    assert.deepEqual([por.orient, por.pages, lan.orient, lan.pages], ['portrait', p, 'landscape', l]);
+  }
+  assert.equal(tileLayout(100, 100, 'none', 10), null);
+  assert.equal(tileLayout(100, 100, 'A4', 140, { margin: 30, orient: 'portrait' }), null, 'no room left for the drawing between the margins and the overlap');
+});
+
+test('tileLayout: tiles cover the sheet exactly, overlap by the set amount, and fit the printable area', () => {
+  for (const paper of ['A4', 'A3']) for (const [W, H] of [[670, 546], [1070, 796], [190, 243], [300, 800]]) for (const margin of [0, 8, 20]) for (const overlap of [0, 10, 25]) {
+    const lay = tileLayout(W, H, paper, overlap, { margin });
+    if (!lay) continue;
+    assert.ok(lay.tw <= lay.aw + 1e-9 && lay.th <= lay.ah + 1e-9, 'a tile fits the printable area');
+    if (lay.nx > 1) { near((lay.nx - 1) * lay.sx + lay.tw, W, 1e-9, 'last tile ends at the sheet edge'); near(lay.tw - lay.sx, lay.overlap, 1e-9, 'neighbours overlap by the set amount'); }
+    if (lay.ny > 1) { near((lay.ny - 1) * lay.sy + lay.th, H, 1e-9); near(lay.th - lay.sy, lay.overlap, 1e-9); }
+  }
+});
+
+test('tileLayout: more margin never means fewer pages; a sheet that fits is one page with no overlap', () => {
+  let prev = 0;
+  for (let margin = 0; margin <= 25; margin += 1) {
+    const lay = tileLayout(670, 546, 'A3', 10, { margin });
+    if (!lay) continue;
+    assert.ok(lay.pages >= prev, `margin ${margin}`); prev = lay.pages;
+  }
+  const one = tileLayout(180, 150, 'A4', 10);
+  assert.deepEqual([one.pages, one.overlap], [1, 0]);
+  const tiles = tileSheets({ W: 180, H: 150, inner: '<rect width="10" height="10"/>', css: '', name: 'x' }, 'A4', 10, 'x');
+  assert.equal(tiles.length, 1);
+  assert.ok(!tiles[0].svg.includes('class="reg"'), 'nothing to align on a single page');
+});
+
+test('every page: right paper size, label and drawing inside the printable area', () => {
+  const { s, t, dial } = bladeCfg({ gPolar: true, gBlade: false });
+  const sheet = faceSheet(dial, { s, t, place: 'Roma', dateStr: 'x' });
+  for (const [paper, orient, margin] of [['A3', 'auto', 8], ['A4', 'portrait', 12], ['A4', 'landscape', 5]]) {
+    const tiles = tileSheets(sheet, paper, 10, 'Dial', { orient, margin });
+    const [a, b] = PAPER_SIDES[paper];
+    assert.ok(tiles.length > 1);
+    for (const tl of tiles) {
+      assert.ok(tl.pw === Math.min(a, b) || tl.pw === Math.max(a, b));
+      assert.match(tl.svg, new RegExp(`width="${tl.pw}mm" height="${tl.ph}mm"`));
+      const vb = tl.svg.match(/viewBox="(-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+)"/).slice(1).map(Number);
+      const label = tl.svg.match(/<text class="dt" x="(-?[\d.]+)" y="(-?[\d.]+)" style="text-anchor:start">[^<]*margin/).slice(1).map(Number); // the page label, not a dimension text
+      const clip = tl.svg.match(/<clipPath[^>]*><rect x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="([\d.]+)"/).slice(1).map(Number);
+      const [lx, ly] = [label[0] - vb[0], label[1] - vb[1]]; // page coordinates, mm
+      assert.ok(lx >= margin - 0.01 && ly >= margin && ly <= margin + 7, `label on the page: ${lx}, ${ly}`);
+      const [cx, cy] = [clip[0] - vb[0], clip[1] - vb[1]];
+      assert.ok(cx >= margin - 0.01 && cy >= margin + 7 - 0.01 && cx + clip[2] <= tl.pw - margin + 0.01 && cy + clip[3] <= tl.ph - margin + 0.01, `drawing area ${cx},${cy} ${clip[2]}x${clip[3]} inside the printable area`);
+    }
+  }
+});
+
+test('clip paths are unique across sheets printed in one document', () => {
+  const { s, t, dial } = bladeCfg({ gPolar: true });
+  const c = { s, t, place: 'x', dateStr: 'x' };
+  const ids = [faceSheet(dial, c), gnomonSheet(dial, c), infoSheet(dial, c)].flatMap((sh) => tileSheets(sh, 'A4', 10, 'x').map((tl) => tl.svg.match(/<clipPath id="([^"]+)"/)[1]));
+  assert.equal(new Set(ids).size, ids.length, ids.join(' '));
+});
+
+test('black and white print: no colours, families told apart by dashes, no plate fill', () => {
+  const colours = /#(?!000\b|fff\b)[0-9a-fA-F]{3,6}\b/;
+  for (const lang of ['en', 'it']) {
+    const all = { lang, hZone: true, anaZoneNoon: true, hDstLabels: true, dZodiac: true, xItalian: true, xBabylonian: true, xAzimuth: true, xAltitude: true, gBlade: true, motto: 'x' };
+    for (const material of ['paper', 'tile']) {
+      const { s } = sanitize({ ...DEFAULTS, ...all, material, ink: 'bw' });
+      const t = makeT(lang), dial = buildDial(s, t), c = { s, t, place: 'x', dateStr: 'x' };
+      for (const sh of [faceSheet(dial, c), gnomonSheet(dial, c), infoSheet(dial, c)]) {
+        const svg = svgDoc(sh);
+        assert.ok(!colours.test(svg), `${sh.name}: ${(svg.match(colours) || [])[0]}`);
+        assert.ok(!/class="tileb"|fill:#f3efe4/.test(svg) || !svg.includes('fill:#f3efe4'), 'no cut-out fill');
+        for (const tl of tileSheets(sh, 'A4', 10, 'x')) assert.ok(!colours.test(tl.svg), `${sh.name} page`);
+      }
+      const css = faceSheet(dial, c).css;
+      assert.match(css, /\.plate\{fill:none/, 'plate not filled');
+      const dash = (k) => (css.match(new RegExp(`\\.l-${k}\\{[^}]*stroke-dasharray:([^;}]+)`)) || [])[1];
+      assert.ok(!dash('hour') && dash('zone') && dash('ital') && dash('bab') && dash('az') && dash('alt'), 'solar solid; zone, Italian, Babylonian, azimuth, altitude dashed');
+      assert.equal(new Set(['zone', 'ital', 'bab', 'az', 'alt'].map(dash)).size, 5, 'the dashed families have different patterns');
+    }
+  }
+  const colour = svgDoc(faceSheet(...(() => { const { s, t, dial } = bladeCfg({ gPolar: true }); s.ink = 'color'; return [dial, { s, t, place: 'x', dateStr: 'x' }]; })()));
+  assert.match(colour, /#c0392b/, 'the colour version still has its colours');
+});
+
+test('print settings are validated and survive the URL', () => {
+  const r = (c) => sanitize({ ...DEFAULTS, ...c }).s;
+  assert.deepEqual([r({ orient: 'diagonal' }).orient, r({ ink: 'sepia' }).ink, r({ paper: 'A0' }).paper], ['auto', 'color', 'none']);
+  assert.deepEqual([r({ printMargin: -5 }).printMargin, r({ printMargin: 99 }).printMargin, r({ printMargin: 'x' }).printMargin], [0, 30, 8]);
+  const s = r({ paper: 'A3', orient: 'landscape', printMargin: 5, ink: 'bw' });
+  const back = sanitize(Object.fromEntries(new URLSearchParams(serializeState(s)))).s;
+  assert.deepEqual([back.paper, back.orient, back.printMargin, back.ink], ['A3', 'landscape', 5, 'bw']);
+});
+
+test('the sheets are sized to print: the info sheet and the gnomon template take one A4 page each', () => {
+  for (const lang of ['en', 'it']) for (const extra of [{}, { hZone: true, anaZoneNoon: true, xItalian: true, gBlade: true, motto: 'x' }]) {
+    const { s } = sanitize({ ...DEFAULTS, lang, ...extra });
+    const t = makeT(lang), dial = buildDial(s, t), c = { s, t, place: 'Roma', dateStr: 'x' };
+    assert.equal(tileLayout(...[infoSheet(dial, c)].map((x) => [x.W, x.H]).flat(), 'A4', 10).pages, 1, `info sheet on one A4 page (${lang})`);
+    if (!extra.gBlade) assert.equal(tileLayout(...[gnomonSheet(dial, c)].map((x) => [x.W, x.H]).flat(), 'A4', 10).pages, 1, `gnomon sheet on one A4 page (${lang})`);
+  }
+});
+
+test('tileSavings: trimming the stated amount really removes the stated number of pages', () => {
+  let offered = 0;
+  for (const paper of ['A4', 'A3']) for (const [W, H] of [[670, 546], [660, 530], [1070, 796], [400, 300], [300, 800]]) for (const margin of [0, 5, 8, 12]) for (const orient of ['portrait', 'landscape']) {
+    const lay = tileLayout(W, H, paper, 10, { margin, orient });
+    const save = tileSavings(W, H, lay);
+    if (!save) continue;
+    offered++;
+    const less = save.axis === 'W' ? [W - save.mm, H] : [W, H - save.mm];
+    const after = tileLayout(less[0], less[1], paper, 10, { margin, orient });
+    assert.equal(after.pages, lay.pages - save.pages, `${paper} ${orient} ${W}x${H} margin ${margin}: trim ${save.mm} mm of ${save.axis}`);
+    assert.ok(save.mm / (save.axis === 'W' ? W : H) <= 0.12, 'only small trims are suggested');
+  }
+  assert.ok(offered > 10, `the hint is offered for a fair share of layouts (${offered})`);
+  assert.equal(tileSavings(670, 546, null), null);
+  assert.equal(tileSavings(180, 150, tileLayout(180, 150, 'A4', 10)), null, 'a single page has nothing to save');
+  // the default 600 x 450 dial on A3: 8 mm off the height saves a whole row
+  const { s } = sanitize({ ...DEFAULTS });
+  const dial = buildDial(s, makeT('en')), { W, H } = faceSheetSize(dial, s);
+  const lay = tileLayout(W, H, 'A3', 10), save = tileSavings(W, H, lay);
+  assert.ok(lay.pages === 6 && save && save.axis === 'H' && save.mm < 12 && save.pages === 2, JSON.stringify({ pages: lay.pages, save }));
+});
+
+test('a sheet that fits on one page takes the orientation that matches its shape', () => {
+  for (const paper of ['A4', 'A3']) {
+    assert.equal(tileLayout(150, 220, paper, 10).orient, 'portrait', `${paper}: tall sheet`);
+    assert.equal(tileLayout(220, 150, paper, 10).orient, 'landscape', `${paper}: wide sheet`);
+  }
+  // the real sheets: the tall info sheet prints upright, the wide gnomon template lies down (A4 forces it anyway)
+  const { s } = sanitize({ ...DEFAULTS });
+  const t = makeT('en'), dial = buildDial(s, t), c = { s, t, place: 'x', dateStr: 'x' };
+  const info = infoSheet(dial, c), gn = gnomonSheet(dial, c);
+  assert.equal(tileLayout(info.W, info.H, 'A3', 10).orient, 'portrait');
+  assert.equal(tileLayout(gn.W, gn.H, 'A3', 10).orient, 'landscape');
 });

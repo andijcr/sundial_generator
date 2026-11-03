@@ -134,7 +134,24 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
 - **Sheet 3 — mounting/info**: wall declination, latitude, how to align,
   corrections table (EoT by date + longitude correction) for converting
   dial time to clock time.
-- Optional tiling into A4/A3 pages with registration marks for large dials.
+- Tiling into A4/A3/A2 pages, always 1:1 (a dimensioned plan must not be scaled):
+  `tileLayout` plans it. It tries portrait and landscape and keeps the one with the
+  fewest pages (then the least wasted paper; for a sheet that fits on one page, the
+  orientation matching its shape); the user can force either. The printer's
+  unprintable margin is a setting (default 8 mm). Each page has a 7 mm header strip
+  inside the printable area for its label (page n/N, row · column, paper, overlap,
+  margin); the leftover space is shared evenly so tiles are equal, centred, and no
+  page is a sliver; a sheet that fits is one page with no overlap. Alignment marks sit
+  at the centres of the overlap zones so they coincide on neighbouring pages.
+  `tileSavings` tells the user the smallest trim (≤ 12 % of a side) that removes a
+  whole row or column of pages. The sheets are sized to their content: the face sheet's
+  margins follow its dimension labels (`faceMargins`), the info sheet is 190 mm wide and
+  the gnomon template is no wider than its drawing, so the info sheet and the template
+  each take one A4 page.
+- Ink: colour, or black & white as an ink saver (no plate fill, black only, line
+  families told apart by dash pattern and weight: `BW_STYLE`).
+- "Print all" prints the dial's pages, the gnomon template and the info sheet in one
+  job, with CSS named pages so each can have its own paper orientation.
 
 ### Sanity bounds & warnings
 - Latitude clamped to ±(66.5°−ε); warn near the equator (gnomon nearly

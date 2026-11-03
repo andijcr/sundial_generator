@@ -18,10 +18,17 @@ Every design choice is a checkbox, so you can compare options on the page:
 | Calendar | noon figure-8 (local mean noon and/or 12:00 zone time) · figure-8 on every hour (reads clock time) · month marks · solstice/equinox lines · zodiac lines · month-start lines |
 | Extra marks | Italian hours · Babylonian hours · sun azimuth and altitude lines · substyle · info text · motto |
 | Gnomon | triangular polar style · perpendicular rod with nodus · vertical blade (tip only) |
-| Output | paper (colour) · painted tile (bold) · laser cut/engrave (hairline) · one sheet or tiled pages |
+| Output | paper (colour) · painted tile (bold) · laser cut/engrave (hairline) · one sheet or pages of A4/A3/A2 (portrait, landscape or automatic, with an adjustable printer margin) · colour or black & white |
 | Views | front view · 3D view · English / Italiano |
 
 **Gnomon types.** The dial depends only on the nodus, the point at distance L in front of the foot F. The triangular polar style (an edge parallel to the Earth's axis, leaning by the substyle angle) lets the whole edge read the hour. The rod and the vertical blade are tip-only: the same lines, but you read the shadow of the tip. The blade is a flat fin standing in the vertical plane perpendicular to the wall, with its lower edge ending at the nodus and a 45° sloping edge back to the wall, which is the easiest shape to cut and mount. All three can be selected together for comparison.
+
+**Printing on A4 / A3.** Plans print at full scale (1:1, never shrunk), so a big dial is cut into pages with an overlap and alignment marks that coincide on neighbouring pages. The page label sits inside the printable area, so a printer's margin cannot cut it off.
+- *Orientation:* automatic picks portrait or landscape for the fewest pages (then the least wasted paper); you can force either, and the page says if the other would need fewer.
+- *Margin:* set your printer's unprintable margin (default 8 mm; many printers manage 4–5 mm, which can save a whole row or column of pages). The slack is shared evenly between pages and each tile is centred, so no page is left with a sliver.
+- *Saving pages:* when the plan is only a few millimetres over what a row or column of pages holds, the page tells you how much narrower or lower the plate would have to be to save them.
+- *Colour or black & white:* black & white is an ink saver: no plate fill, everything black, and the line families (solar, zone time, Italian and Babylonian hours, azimuth, altitude) told apart by dash patterns instead of colour.
+- *Print all* sends the dial's pages, the gnomon template and the info sheet to the printer in one job; the gnomon template and the info sheet are sized to take one A4 page each, and each page asks for its own paper orientation.
 
 A "measure my wall" helper works out the wall declination from a shadow at a known time, or from a compass bearing.
 
