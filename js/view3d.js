@@ -127,8 +127,7 @@ export class View3D {
     if (S) {
       const big = 30 * size, n = Math.hypot(S[0], S[1]);
       const Sc = n > big ? [S[0] / n * big, S[1] / n * big] : S;
-      if (sc.gPolar && dial.root) poly([W(...dial.root), W(0, 0), W(...Sc)], 'rgba(20,20,30,0.35)');
-      if (sc.gPolar && dial.root && sc.rodX > 1) line([W(...Sc), W(dial.root[0] + sc.rodX * (Sc[0] - dial.root[0]), dial.root[1] + sc.rodX * (Sc[1] - dial.root[1]))], 'rgba(20,20,30,0.5)', 2);
+      if (sc.gPolar && dial.root) { const k = sc.rodX || 1, [rx, ry] = dial.root; poly([W(rx, ry), W(rx * (1 - k), ry * (1 - k)), W(rx + k * (Sc[0] - rx), ry + k * (Sc[1] - ry))], 'rgba(20,20,30,0.35)'); }
       if (sc.gBlade) poly([W(0, bladeHeight(L)), W(0, 0), W(...Sc)], 'rgba(20,20,30,0.35)');
       if (sc.gRod) line([W(0, 0), W(Sc[0] * (sc.rodX || 1), Sc[1] * (sc.rodX || 1))], 'rgba(20,20,30,0.5)', 2);
       if (n <= big) { const q = proj(W(...S)); if (q) { ctx.fillStyle = '#e4572e'; ctx.beginPath(); ctx.arc(q[0], q[1], 3, 0, 7); ctx.fill(); } }
@@ -136,8 +135,7 @@ export class View3D {
     if (sc.trail && sc.trail.length > 1) line(sc.trail.map(([x, yy]) => W(x, yy)), '#e4572e', 1.2);
     // gnomon
     const N = fr.n.map((v) => v * L);
-    if (sc.gPolar && dial.root) poly([W(...dial.root), [0, 0, 0], N], 'rgba(60,50,40,0.85)', '#222', 1);
-    if (sc.gPolar && dial.root && sc.rodX > 1) { const R3 = W(...dial.root); line([N, N.map((c, i) => R3[i] + sc.rodX * (c - R3[i]))], '#222', 3); }
+    if (sc.gPolar && dial.root) { const k = sc.rodX || 1, [rx, ry] = dial.root, R3 = W(rx, ry); poly([R3, W(rx * (1 - k), ry * (1 - k)), N.map((c, i) => R3[i] + k * (c - R3[i]))], 'rgba(60,50,40,0.85)', '#222', 1); }
     if (sc.gBlade) poly([[0, 0, 0], N, W(0, bladeHeight(L))], 'rgba(60,50,40,0.85)', '#222', 1);
     if (sc.gRod) line([[0, 0, 0], N.map((v) => v * (sc.rodX || 1))], '#222', 3);
     // sun path for the day and sun ray

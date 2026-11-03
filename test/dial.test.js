@@ -740,22 +740,25 @@ test('fit the plate to one page: the largest that fits, for A4/A3, either langua
   assert.ok(fitPlateToPage(sanitize({}).s, makeT('en'), 'A3', { margin: 8 }).plateW > fitPlateToPage(sanitize({}).s, makeT('en'), 'A4', { margin: 8 }).plateW);
 });
 
-test('oversized triangular style: the edge goes on past the notch (the nodus), in the shadow and on the template', () => {
+test('oversized triangular style: the whole triangle is rodX times bigger, notch on the hypotenuse at the true nodus', () => {
   const t = makeT('en');
   const { s } = sanitize({ rodX: 3, gRod: false }), dial = buildDial(s, t);
-  const S = [150, 90], [Rx, Ry] = dial.root;
-  const m = shadowMarkup(dial, { s, t }, S, []).match(/<line x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/).slice(1).map(Number);
-  const P = dial.plate, want = [P.fx + Rx + 3 * (S[0] - Rx), P.fy - (Ry + 3 * (S[1] - Ry))];
-  assert.ok(Math.hypot(m[2] - want[0], m[3] - want[1]) < 0.1, 'the line ends at root + 3 (S - root)');
-  assert.ok(Math.hypot(m[0] - (P.fx + S[0]), m[1] - (P.fy - S[1])) < 0.1, 'and starts at the nodus shadow');
-  assert.ok(!shadowMarkup(dial, { s: { ...s, rodX: 1 }, t }, S, []).includes('<line'), 'no extension at x1');
+  const S = [150, 90], [Rx, Ry] = dial.root, P = dial.plate;
+  const pts = (m) => m.match(/<polygon points="([^"]+)"/)[1].split(' ').map((q) => q.split(',').map(Number));
+  const [r, fp, ep] = pts(shadowMarkup(dial, { s, t }, S, []));
+  const at = (x, y) => [P.fx + x, P.fy - y];
+  const near = (u, v) => Math.hypot(u[0] - v[0], u[1] - v[1]) < 0.1;
+  assert.ok(near(r, at(Rx, Ry)) && near(fp, at(-2 * Rx, -2 * Ry)) && near(ep, at(Rx + 3 * (S[0] - Rx), Ry + 3 * (S[1] - Ry))), 'shadow scaled 3x about R');
+  assert.equal(pts(shadowMarkup(dial, { s: { ...s, rodX: 1 }, t }, S, [])).length, 3);
   for (const lang of ['en', 'it']) {
     const tl = makeT(lang), sl = { ...s, lang }, d = buildDial(sl, tl);
     const sh = gnomonSheet(d, { s: sl, t: tl, place: 'T', dateStr: 'x' }), svg = svgDoc(sh);
     assert.ok(!/NaN|undefined|Infinity/.test(svg));
-    assert.ok(svg.includes(tl('polarLongNote', 3).split(' ')[0]) && svg.includes(tl('rodNotch')), lang);
+    assert.ok(svg.includes(tl('rodNotch')) && svg.includes('R–F = '), lang);
     const a = Math.hypot(d.root[0], d.root[1]);
-    assert.ok(sh.W >= 3 * a + 30, 'the sheet is as wide as the extended edge');
-    assert.ok(sh.H >= 3 * d.L + 40, 'and as tall');
+    assert.ok(svg.includes(`${(3 * a).toFixed(1)} mm`) && svg.includes(`3×L = ${(3 * d.L).toFixed(1)} mm`), 'big base and height');
+    assert.ok(sh.W >= 3 * a + 30 && sh.H >= 3 * d.L + 40, 'sheet holds the big triangle');
+    // the cut outline has the 3-point notch: 8 vertices instead of 3
+    assert.equal(svg.match(/<polygon class="cut" points="([^"]+)"/)[1].split(' ').length, 6);
   }
 });

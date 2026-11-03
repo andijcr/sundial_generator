@@ -146,11 +146,9 @@ export function shadowMarkup(dial, ctx, S, trail) {
     // keep huge (grazing) shadows drawable
     const Sc = n > big ? [S[0] / n * big, S[1] / n * big] : S;
     if (ctx.s.gPolar && dial.root) {
-      out += `<polygon points="${X(dial.root)},${Y(dial.root)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
-    }
-    if (ctx.s.gPolar && dial.root && ctx.s.rodX > 1) { // the extended style edge casts the same hour line on, past the nodus's shadow
-      const k = ctx.s.rodX, E = [dial.root[0] + k * (Sc[0] - dial.root[0]), dial.root[1] + k * (Sc[1] - dial.root[1])];
-      out += `<line x1="${X(Sc)}" y1="${Y(Sc)}" x2="${X(E)}" y2="${Y(E)}" stroke="rgba(20,20,30,0.45)" stroke-width="${f(Math.max(dial.L * 0.025, 1.5))}" stroke-linecap="round"/>`;
+      // oversized triangle (rodX times bigger about the root R): its shadow is the same one scaled about R, the notch's shadow at Sc
+      const k = ctx.s.rodX > 1 ? ctx.s.rodX : 1, Rt = dial.root, Fp = [Rt[0] * (1 - k), Rt[1] * (1 - k)], Ep = [Rt[0] + k * (Sc[0] - Rt[0]), Rt[1] + k * (Sc[1] - Rt[1])];
+      out += `<polygon points="${X(Rt)},${Y(Rt)} ${X(Fp)},${Y(Fp)} ${X(Ep)},${Y(Ep)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gBlade) {
       const A = [0, bladeHeight(dial.L)];
@@ -309,52 +307,53 @@ export function gnomonSheet(dial, ctx) {
   const top = M + 12;
   inner += textLines(M, M, [{ t: `${t('title')} — ${t('sheetGnomon')}`, b: true }], 5);
   if (s.gPolar && dial.root) {
-    const a = Math.hypot(dial.root[0], dial.root[1]);
-    const hyp = Math.hypot(a, L);
-    const SH = Math.atan2(L, a) * 180 / Math.PI;
-    const kP = s.rodX > 1 ? s.rodX : 1; // oversized: the style edge goes on past the nodus, which stays marked by a notch
-    const ox = x, oy = top + kP * L + 10; // R' at (ox, oy)
+    // Oversized (rodX > 1): the whole triangle is rodX times bigger, so it is easy to cut and holds its shape; the notch on the
+    // hypotenuse sits where the real nodus N would be (the original triangle's tip). Shadows scale about R, so the shadow of the
+    // notch lands on the true point and the edge's shadow, the hour line, is just longer.
+    const kP = s.rodX > 1 ? s.rodX : 1;
+    const a1 = Math.hypot(dial.root[0], dial.root[1]), hyp1 = Math.hypot(a1, L);
+    const a = kP * a1, LP = kP * L, hyp = kP * hyp1;
+    const SH = Math.atan2(L, a1) * 180 / Math.PI;
+    const ox = x, oy = top + LP + 10; // R' at (ox, oy)
     const tb = Math.min(TAB, a / 4);
-    const d = [a / hyp, -L / hyp], nIn = [L / hyp, a / hyp]; // along the style edge (up and right); normal into the triangle (down and right)
-    const ex = ox + a + (kP - 1) * a, ey = oy - L - (kP - 1) * L; // far end of the extended edge
-    const AW = 5, ND = 2.5; // arm width, notch depth
-    let g;
-    if (kP > 1 && a > 3 * AW) {
-      const P = (px, py) => `${f(px)},${f(py)}`, Nx = ox + a, Ny = oy - L, sq = AW * L / a; // sq: the arm's lower edge meets the vertical side that far below N
-      g = `<polygon class="cut" points="${P(ox, oy)} ${P(Nx - 3 * d[0], Ny - 3 * d[1])} ${P(Nx + ND * nIn[0], Ny + ND * nIn[1])} ${P(Nx + 3 * d[0], Ny + 3 * d[1])} ${P(ex, ey)} ${P(ex + AW * nIn[0], ey + AW * nIn[1])} ${P(Nx, Ny + sq * hyp / L)} ${P(Nx, oy)}"/>`;
-    } else {
-      g = `<polygon class="cut" points="${f(ox)},${f(oy)} ${f(ox + a)},${f(oy)} ${f(ox + a)},${f(oy - L)}"/>`;
-    }
+    const ND = 3, d = [a1 / hyp1, -L / hyp1], nIn = [L / hyp1, a1 / hyp1]; // along the hypotenuse (up and right); notch depth, into the triangle
+    const Nx = ox + a1, Ny = oy - L; // the true nodus, on the hypotenuse
+    const P = (px, py) => `${f(px)},${f(py)}`;
+    const notch = kP > 1 ? ` ${P(Nx - 3 * d[0], Ny - 3 * d[1])} ${P(Nx + ND * nIn[0], Ny + ND * nIn[1])} ${P(Nx + 3 * d[0], Ny + 3 * d[1])}` : '';
+    let g = `<polygon class="cut" points="${P(ox, oy)}${notch} ${P(ox + a, oy - LP)} ${P(ox + a, oy)}"/>`;
     g += `<polygon class="cut" points="${f(ox)},${f(oy)} ${f(ox + a)},${f(oy)} ${f(ox + a - tb)},${f(oy + tb)} ${f(ox + tb)},${f(oy + tb)}"/>`;
     g += `<path class="fold" d="M${f(ox)} ${f(oy)}H${f(ox + a)}"/>`;
-    const r = Math.min(a, L, 60) * 0.35;
+    const r = Math.min(a, LP, 60) * 0.35;
     g += `<path class="dim" d="M${f(ox + r)} ${f(oy)}A${f(r)} ${f(r)} 0 0 0 ${f(ox + r * Math.cos(SH * Math.PI / 180))} ${f(oy - r * Math.sin(SH * Math.PI / 180))}"/>`;
     g += `<text class="dt" x="${f(ox + r + 6)}" y="${f(oy - 2)}" style="text-anchor:start">${SH.toFixed(2)}°</text>`;
-    g += dimH(ox, ox + a, oy + tb + 9, oy + tb, mm(a));
-    g += dimV(oy - L, oy, ox + a + 10, ox + a, `L = ${mm(L)}`);
-    const mx = ox + a / 2, my = oy - L / 2, ang = -SH;
-    const edgeLabel = `${t('styleEdge')} — ${mm(hyp)}`;
-    if (hyp > edgeLabel.length * 1.8 + 10) { // along the edge when it is long enough, else in the caption below
-      g += `<text class="dt" x="${f(mx - 3)}" y="${f(my - 3)}" transform="rotate(${f(ang)} ${f(mx - 3)} ${f(my - 3)})">${esc(edgeLabel)}</text>`;
+    const extra = kP > 1 ? 10 : 0; // when oversized, a dimension line from R to the true foot F comes first, the whole base under it
+    if (kP > 1) g += `<path class="dimx" d="M${f(Nx)} ${f(oy)}V${f(oy + tb)}"/>` + dimH(ox, Nx, oy + tb + 9, oy + tb, `R–F = ${mm(a1)}`);
+    g += dimH(ox, ox + a, oy + tb + 9 + extra, oy + tb, mm(a));
+    g += dimV(oy - LP, oy, ox + a + 10, ox + a, kP > 1 ? `${kP}×L = ${mm(LP)}` : `L = ${mm(L)}`);
+    // the edge label goes along the hypotenuse (past the notch when oversized) if it is long enough, else in the caption below
+    const edgeLabel = `${t('styleEdge')} — ${mm(hyp)}`, t0 = kP > 1 ? 1 / kP : 0, span = hyp * (1 - t0);
+    if (span > edgeLabel.length * 1.8 + 10) {
+      const mx = ox + a * (1 + t0) / 2, my = oy - LP * (1 + t0) / 2;
+      g += `<text class="dt" x="${f(mx - 3)}" y="${f(my - 3)}" transform="rotate(${f(-SH)} ${f(mx - 3)} ${f(my - 3)})">${esc(edgeLabel)}</text>`;
     } else {
-      g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 25)}" style="text-anchor:start">${esc(edgeLabel)}</text>`;
+      g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 25 + extra)}" style="text-anchor:start">${esc(edgeLabel)}</text>`;
     }
     g += `<text class="dt" x="${f(ox - 3)}" y="${f(oy + 1)}" style="text-anchor:end">R</text>`;
-    g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy + 4)}" style="text-anchor:start">F</text>`;
-    if (kP > 1) g += `<text class="dt" x="${f(ox + a - 6)}" y="${f(oy - L - 4)}" style="text-anchor:end">N (${esc(t('nodus'))}) = ${esc(t('rodNotch'))}</text>`; // the arm leaves to the right of N
-    else g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy - L - 2)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
-    g += `<circle cx="${f(ox + a)}" cy="${f(oy - L)}" r="1" class="nodus"/>`;
-    g += `<text class="dt" x="${f(ox + a / 2)}" y="${f(oy + tb / 2 + 1)}">${esc(t('tab'))}</text>`;
-    g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 20)}" style="text-anchor:start">${esc(t('wallEdge'))}</text>`;
-    H = Math.max(H, oy + tb + 27); // the bottom of the captions under the tab
+    g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy + 4)}" style="text-anchor:start">${kP > 1 ? 'F′' : 'F'}</text>`;
+    if (kP > 1) g += `<text class="dt" x="${f(Nx - 6)}" y="${f(Ny - 4)}" style="text-anchor:end">N (${esc(t('nodus'))}) = ${esc(t('rodNotch'))}</text>`;
+    else g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy - LP - 2)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
+    g += `<circle cx="${f(Nx)}" cy="${f(Ny)}" r="1" class="nodus"/>`;
+    g += `<text class="dt" x="${f(kP > 1 ? ox + (a1 + a) / 2 : ox + a / 2)}" y="${f(oy + tb / 2 + 1)}">${esc(t('tab'))}</text>`;
+    g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 20 + extra)}" style="text-anchor:start">${esc(t('wallEdge'))}</text>`;
+    H = Math.max(H, oy + tb + 27 + extra); // the bottom of the captions under the tab
     if (kP > 1) {
       const lines = wrapText(t('polarLongNote', kP), 60);
-      g += textLines(ox, oy + tb + 31, lines, 3.2);
-      H = Math.max(H, oy + tb + 31 + lines.length * 3.2 * 1.45);
+      g += textLines(ox, oy + tb + 31 + extra, lines, 3.2);
+      H = Math.max(H, oy + tb + 31 + extra + lines.length * 3.2 * 1.45);
     }
     inner += g;
-    x += kP * a + 36;
-    right = Math.max(right, ox + a + 24, kP > 1 ? ex + 14 : 0);
+    x += a + 36;
+    right = Math.max(right, ox + a + 24);
   } else if (s.gPolar) {
     const lines = wrapText(t('noPolar'), 40);
     inner += textLines(M, top + 8, lines, 4);
