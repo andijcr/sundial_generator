@@ -134,6 +134,14 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
 - **Sheet 3 — mounting/info**: wall declination, latitude, how to align,
   corrections table (EoT by date + longitude correction) for converting
   dial time to clock time.
+- **Sheet 4 — correction chart** (A4 landscape, `correctionSheet`): the correction to apply as a
+  chart, minutes to add to the dial reading against the date. One curve for the solar-time lines
+  (longitude offset − EoT) and one for the zone-time lines (− EoT); summer time is *not* folded in
+  (a 60 min step would flatten the wiggle), the months it is in force are marked instead, which
+  also copes with the southern spans that wrap the new year; the extremes are labelled with value
+  and date. The same chart is on the page, with a marker for the simulated date and a sentence
+  saying what to add today. `yearCorrections` (`astro.js`) is the one source for the chart and the
+  table. Figure-8s on every hour need no correction apart from summer time, which the notes say.
 - Tiling into A4/A3/A2 pages, always 1:1 (a dimensioned plan must not be scaled):
   `tileLayout` plans it. It tries portrait and landscape and keeps the one with the
   fewest pages (then the least wasted paper; for a sheet that fits on one page, the
@@ -150,7 +158,7 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
   each take one A4 page.
 - Ink: colour, or black & white as an ink saver (no plate fill, black only, line
   families told apart by dash pattern and weight: `BW_STYLE`).
-- "Print all" prints the dial's pages, the gnomon template and the info sheet in one
+- "Print all" prints the dial's pages, the gnomon template, the info sheet and the correction chart in one
   job, with CSS named pages so each can have its own paper orientation.
 
 ### Sanity bounds & warnings

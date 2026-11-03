@@ -165,6 +165,7 @@
         <button type="button" id="dlFace" data-i18n="dlFace"></button>
         <button type="button" id="dlGnomon" data-i18n="dlGnomon"></button>
         <button type="button" id="dlInfo" data-i18n="dlInfo"></button>
+        <button type="button" id="dlCorr" data-i18n="dlCorr"></button>
       </div>
       <div id="tiles" class="tiles"></div>
     </details>
@@ -183,6 +184,12 @@
       <figure id="frontWrap"><div id="front"></div></figure>
       <figure id="v3dWrap"><canvas id="view3d" aria-label="3D view: drag to rotate, scroll to zoom"></canvas></figure>
     </div>
+
+    <details class="corr" open>
+      <summary data-i18n="corrTitle"></summary>
+      <p class="hint" id="corrNow"></p>
+      <div id="corrGraph"></div>
+    </details>
 
     <article class="learn" id="learn">
       <section data-lang="en">
