@@ -237,6 +237,49 @@ export function sunStats(lat, D) {
   return { litPerDay: lit * k, dayPerDay: day * k };
 }
 
+/** Box of a label (dial coords, mm): [x0, x1, y0, y1]. Text is centred on (x, y); the width is estimated (0.6 em per character). */
+export function labelBox(lb, fs, x = lb.x, y = lb.y) {
+  const z = fs * (lb.size || 1), w = [...lb.text].length * 0.6 * z + 0.15 * z, h = 0.85 * z;
+  return [x - w / 2, x + w / 2, y - h / 2, y + h / 2];
+}
+const boxesHit = (a, b) => a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3];
+
+// Which labels keep their place when two collide: the hour numbers first, then the summer-time numbers
+// (which follow their hour number), the date lines, the old hours, and the small month and angle labels last.
+const LABEL_RANK = { hour: 0, zone: 1, ana: 2, dst: 3, date: 4, ital: 5, bab: 5, dateMinor: 6, az: 8, alt: 8 };
+const labelRank = (lb) => (lb.cls === 'ana' && lb.size ? 7 : LABEL_RANK[lb.cls] ?? 9); // a small 'ana' label is a month name
+
+/**
+ * Move labels so they do not overlap, in place. Labels are placed by rank; each stays where it was put if that is free,
+ * else it goes to the nearest free spot (rings up to about 3.5 font sizes out, inside the clip box). A label with `of`
+ * (a summer-time number) first moves with the label it belongs to. One that finds no free spot stays put.
+ */
+export function placeLabels(labels, clip, fs) {
+  const order = labels.map((lb, i) => [labelRank(lb), i]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, i]) => labels[i]);
+  const placed = [], moved = new Map();
+  for (const lb of order) {
+    const d = lb.of && moved.get(lb.of);
+    const x0 = lb.x + (d ? d[0] : 0), y0 = lb.y + (d ? d[1] : 0);
+    const z = fs * (lb.size || 1);
+    const free = (x, y) => { const b = labelBox(lb, fs, x, y); return !placed.some((p) => boxesHit(b, p)); };
+    const inside = (x, y) => { const b = labelBox(lb, fs, x, y); return b[0] >= clip.x0 && b[1] <= clip.x1 && b[2] >= clip.y0 && b[3] <= clip.y1; };
+    let best = [x0, y0];
+    if (!free(x0, y0)) {
+      search: for (let k = 1; k <= 8; k++) {
+        const r = 0.45 * z * k;
+        for (let a = 0; a < 16; a++) {
+          const x = x0 + r * Math.cos(a * Math.PI / 8), y = y0 + r * Math.sin(a * Math.PI / 8);
+          if (inside(x, y) && free(x, y)) { best = [x, y]; break search; }
+        }
+      }
+    }
+    moved.set(lb, [best[0] - lb.x, best[1] - lb.y]);
+    lb.x = best[0]; lb.y = best[1];
+    delete lb.of;
+    placed.push(labelBox(lb, fs));
+  }
+}
+
 /**
  * Compute all marks of the dial.
  * cfg: { lat, lon, tz, D, L, plate:{w,h,fx,fy,margin}, fontSize, opts, t }
@@ -326,10 +369,11 @@ export function computeDial(cfg) {
       if (isMajor && clipped.length) {
         const lb = labelAtEnd(clipped, ref, fs * 0.9);
         if (lb) {
-          labels.push({ x: lb.p[0], y: lb.p[1], text: hourText(h), cls });
+          const main = { x: lb.p[0], y: lb.p[1], text: hourText(h), cls };
+          labels.push(main);
           if (dstLabels) {
             const q = clampIn([lb.p[0] - lb.dir[1] * fs * 1.1, lb.p[1] + lb.dir[0] * fs * 1.1]);
-            labels.push({ x: q[0], y: q[1], text: hourText(h + 1), cls: 'dst', size: 0.75 });
+            labels.push({ x: q[0], y: q[1], text: hourText(h + 1), cls: 'dst', size: 0.75, of: main });
           }
         }
       }
@@ -433,10 +477,11 @@ export function computeDial(cfg) {
         const p = pts[k];
         const dx = p[0] - cx, dy = p[1] - cy, n = Math.hypot(dx, dy) || 1;
         const q = clampIn([p[0] + (dx / n) * fs * 0.9, p[1] + (dy / n) * fs * 0.9]);
-        labels.push({ x: q[0], y: q[1], text: hourLabel, cls: 'ana' });
+        const main = { x: q[0], y: q[1], text: hourLabel, cls: 'ana' };
+        labels.push(main);
         if (dstLabel) {
           const q2 = clampIn([q[0] + fs * 1.1, q[1]]);
-          labels.push({ x: q2[0], y: q2[1], text: dstLabel, cls: 'dst', size: 0.75 });
+          labels.push({ x: q2[0], y: q2[1], text: dstLabel, cls: 'dst', size: 0.75, of: main });
         }
       }
     }
@@ -526,6 +571,8 @@ export function computeDial(cfg) {
       add('substyle', 'construct', clipPolyline([root, [root[0] + d[0] * lim, root[1] + d[1] * lim]], clip));
     }
   }
+
+  placeLabels(layers.flatMap((l) => l.labels), clip, fs);
 
   // ---------- Warnings & stats ----------
   const warnings = [];

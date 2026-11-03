@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
-import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
+import { labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
@@ -825,4 +825,30 @@ test('blade height: bladeR × L everywhere (front view, shadow, template, auto-f
   assert.equal(DEFAULTS.bladeR, 1, 'the 45° blade by default');
   const back = sanitize(Object.fromEntries(new URLSearchParams(serializeState(sanitize({ ...DEFAULTS, gBlade: true, bladeR: 0.5 }).s)))).s;
   assert.equal(back.bladeR, 0.5);
+});
+
+test('labels do not overlap, even with every option on, and summer-time numbers stay by their hour', () => {
+  const all = { hZone: true, hDstLabels: true, anaHours: true, anaZoneNoon: true, dZodiac: true, dMonths: true, xItalian: true, xBabylonian: true, xAzimuth: true, xAltitude: true };
+  for (const c of [{}, all, { ...all, lang: 'it', hRoman: true }, { ...all, plateW: 200, plateH: 150 }, { ...all, lat: -33.87, lon: 151.2, tz: 10, dst: 'AU' }, { ...all, D: -60, material: 'tile' }]) {
+    const { s } = sanitize({ ...DEFAULTS, ...c });
+    const dial = buildDial(s, makeT(s.lang)), fs = dial.fontSize;
+    const labels = dial.layers.flatMap((l) => l.labels);
+    const boxes = labels.map((lb) => labelBox(lb, fs));
+    let hits = 0;
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      if (a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3]) hits++;
+    }
+    assert.ok(hits <= labels.length * 0.02, `${hits} overlaps of ${labels.length} labels for ${JSON.stringify(c)}`);
+    assert.ok(labels.every((lb) => !('of' in lb)), 'no internal links left on the labels');
+  }
+  // a crowded spot: the second label moves out of the way, the first keeps its place; the companion follows its label
+  const clip = { x0: -100, x1: 100, y0: -100, y1: 100 };
+  const a = { x: 0, y: 0, text: '12', cls: 'hour' }, b = { x: 0.5, y: 0, text: '12', cls: 'zone' }, d = { x: 0.5, y: 6, text: '13', cls: 'dst', size: 0.75, of: b };
+  placeLabels([d, b, a], clip, 5);
+  assert.deepEqual([a.x, a.y], [0, 0], 'the higher-ranked label keeps its place');
+  const ba = labelBox(a, 5), bb = labelBox(b, 5);
+  assert.ok(!(ba[0] < bb[1] && bb[0] < ba[1] && ba[2] < bb[3] && bb[2] < ba[3]), 'b moved clear of a');
+  assert.ok(Math.hypot(b.x - 0.5, b.y) <= 0.45 * 5 * 8 + 1e-9, 'not far');
+  assert.ok(Math.hypot(d.x - b.x, d.y - b.y) < 12, 'the summer-time number stays next to its hour');
 });

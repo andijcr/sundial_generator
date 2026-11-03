@@ -229,8 +229,13 @@ Pages. No npm install required to run; `node --test` for the maths tests.
 7. Third gnomon option: vertical blade (tip-only) with its own template.
 
 Milestones 1-7 are done. Known gaps and ideas: during animation the trail and
-3D view are redrawn in full every frame; with every option on, some labels at
-the foot of the figure-8s overlap; pinhole nodus.
+3D view are redrawn in full every frame; pinhole nodus.
+
+Label placement: every label is first put where its own mark wants it, then `placeLabels` (`dial.js`)
+resolves collisions by rank (solar hours, zone hours, figure-8 hours, summer-time numbers, date lines, old
+hours, month names, azimuth/altitude). A label whose spot is taken moves to the nearest free spot within
+about 3.5 font sizes, inside the plate; a summer-time number first moves with its hour number. Widths are
+estimated (0.6 em per character).
 
 ## 5. Later: gnomon width (thickness) and the build
 
