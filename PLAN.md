@@ -163,7 +163,7 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
   job, with CSS named pages so each can have its own paper orientation.
 
 ### Fit to a page
-`fitPlateToPage` (`state.js`) searches (bisection on the plate width, proportions kept) for the largest plate whose face sheet `tileLayout` puts on one page. It is a search because the sheet's margins depend on the foot and style root, which auto-fit moves with the plate. It is a button, not a mode, so it does not fight the plate fields. A plate too tall to fit even at 50 mm gets flatter proportions; a paper that cannot hold the 200 mm title block (A4 portrait) gives `null` and a warning.
+`fitPlateToPage` (`state.js`) makes the dial as big as possible on one page: for each orientation it iterates plate size to the fixed point where the face sheet equals the printable area (`tileLayout`'s `aw` × `ah`), since the sheet's margins depend on the foot and style root that auto-fit moves with the plate, then trims or grows by whole millimetres until it is exactly one page, and keeps the orientation with the larger dial scale L. It uses the brief face sheet (`faceBrief`: two-line caption, no scale bar, 130 mm minimum width instead of 200 mm, 50 mm bottom margin instead of 74), so the dial gets the room and A4 portrait is possible. It is a button, not a mode, so it does not fight the plate fields; the info, gnomon and chart sheets are separate pages of the print job.
 
 `fitGnomonToPage` bisects the scale L the same way for the gnomon sheet (its size depends on L, the gnomon types and `rodX`, not on the plate); it returns a manual L and the current foot, because L is the dial's scale and cannot change without moving the dial.
 

@@ -47,7 +47,7 @@ export const DEFAULTS = {
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false,
   xItalian: false, xBabylonian: false, xAzimuth: false, xAltitude: false, xSubstyle: true, xInfo: true, motto: '',
-  material: 'paper', paper: 'none', overlap: 10, orient: 'auto', printMargin: 8, ink: 'color',
+  material: 'paper', faceBrief: false, paper: 'none', overlap: 10, orient: 'auto', printMargin: 8, ink: 'color',
   v2d: true, v3d: true,
 };
 
@@ -145,28 +145,45 @@ export function buildDial(s, t) {
 }
 
 /**
- * The largest plate that makes the face sheet a single page of `paper` (keeping the plate's proportions, whole
- * millimetres), or null when even the smallest plate does not fit. The sheet is the plate plus margins that depend
- * on what is drawn (and the automatic fit moves the foot and root with the plate), so this searches rather than solves.
- * A plate too tall to fit even at the smallest width gets flatter proportions (the first of 1, 3:4, 1:2, ... that fits).
+ * The plate that makes the dial as big as possible on a single page of `paper`: the face sheet fills the printable area
+ * (the page minus the printer margin and the header strip) in both directions, whatever proportions that takes. The sheet is
+ * the plate plus margins that depend on what is drawn (and the automatic fit moves the foot and root with the plate), so
+ * this iterates to the fixed point, then trims or grows by whole millimetres until it is exactly one page. With automatic
+ * orientation both are tried and the one giving the bigger dial (scale L) wins. Returns { plateW, plateH } or null when
+ * nothing fits. The dial sheet gets the short caption (faceBrief) so the dial gets the room; the gnomon, info sheet and chart are separate pages of the
+ * same print job.
  */
 export function fitPlateToPage(s, t, paper, opts = {}) {
-  const sheetFits = (w, h) => {
-    const sn = { ...s, plateW: w, plateH: h };
-    const z = faceSheetSize(buildDial(sn, t), sn);
-    return tileLayout(z.W, z.H, paper, 0, opts)?.pages === 1;
-  };
-  const [lo0, hi0] = [BOUNDS.plateW[0], BOUNDS.plateW[1]];
-  let ratio = s.plateH / s.plateW;
-  const size = (w) => [Math.floor(w), Math.max(BOUNDS.plateH[0], Math.floor(w * ratio))];
-  const ok = (w) => sheetFits(...size(w));
-  const flatter = [1, 0.75, 0.5, 0.35, 0.25].filter((r) => r < ratio);
-  while (!ok(lo0) && flatter.length) ratio = flatter.shift();
-  if (!ok(lo0)) return null;
-  let lo = lo0, hi = Math.min(hi0, 2000); // A2 is 594 mm: no single sheet is wider than that
-  while (hi - lo > 1) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
-  const [plateW, plateH] = size(lo);
-  return { plateW, plateH };
+  const orients = opts.orient === 'portrait' || opts.orient === 'landscape' ? [opts.orient] : ['landscape', 'portrait'];
+  const [lo, hi] = [BOUNDS.plateW[0], BOUNDS.plateW[1]];
+  const clampMm = (v) => Math.min(hi, Math.max(lo, v));
+  let best = null;
+  for (const orient of orients) {
+    const o = { ...opts, orient }, area = tileLayout(1, 1, paper, 0, o);
+    if (!area) continue;
+    const { aw, ah } = area;
+    const measure = (w, h) => { const sn = { ...s, faceBrief: true, plateW: w, plateH: h }, d = buildDial(sn, t); return { z: faceSheetSize(d, sn), L: d.L }; };
+    const fits = (w, h) => { const { z } = measure(w, h); return z.W <= aw && z.H <= ah; };
+    let w = clampMm(aw * 0.6), h = clampMm(ah * 0.5);
+    for (let i = 0; i < 12; i++) {
+      const { z } = measure(w, h), nw = clampMm(w + aw - z.W), nh = clampMm(h + ah - z.H);
+      if (Math.abs(nw - w) < 0.05 && Math.abs(nh - h) < 0.05) break;
+      w = nw; h = nh;
+    }
+    let W = Math.floor(w), H = Math.floor(h);
+    for (let i = 0; i < 400 && !fits(W, H); i++) { // too big: trim the direction(s) that overflow
+      const { z } = measure(W, H);
+      if (z.W > aw) W--;
+      if (z.H > ah) H--;
+      if (W < lo || H < lo) break;
+    }
+    if (W < lo || H < lo || !fits(W, H)) continue;
+    while (W < hi && fits(W + 1, H)) W++; // and grow what the iteration left over
+    while (H < hi && fits(W, H + 1)) H++;
+    const { L } = measure(W, H);
+    if (!best || L > best.L + 1e-9 || (Math.abs(L - best.L) <= 1e-9 && W * H > best.W * best.H)) best = { L, W, H };
+  }
+  return best && { plateW: best.W, plateH: best.H, faceBrief: true };
 }
 
 /**

@@ -127,7 +127,7 @@ test('sheets render for many configurations without NaN', () => {
     { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
-    { rodX: 2 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
+    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { gBlade: true }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
@@ -724,20 +724,25 @@ test('oversized rod template: ×k long, notch L from the wall, in both languages
   assert.ok(!svgDoc(gnomonSheet(buildDial(s, t), { s, t, place: 'T', dateStr: 'x' })).includes('3× ='));
 });
 
-test('fit the plate to one page: the largest that fits, for A4/A3, either language, each orientation', () => {
-  for (const paper of ['A4', 'A3']) for (const orient of ['auto', 'portrait', 'landscape']) for (const extra of [{}, { gBlade: true, D: 80 }, { plateW: 300, plateH: 600 }]) {
+test('fit the dial to one page: it fills the printable area, the best orientation wins', () => {
+  const tt = makeT('en');
+  for (const paper of ['A4', 'A3']) for (const orient of ['auto', 'portrait', 'landscape']) for (const extra of [{}, { gBlade: true, D: 80 }, { plateW: 300, plateH: 600 }, { rodX: 3 }]) {
     const { s } = sanitize({ ...DEFAULTS, ...extra, paper });
-    const t = makeT('en'), opts = { orient, margin: 8 };
-    const fit = fitPlateToPage(s, t, paper, opts);
-    if (paper === 'A4' && orient === 'portrait') { assert.equal(fit, null, 'the 200 mm title block is wider than A4 portrait'); continue; }
-    assert.ok(fit, `${paper} ${orient}`);
-    const pages = (w, h) => { const sn = { ...s, plateW: w, plateH: h }, z = faceSheetSize(buildDial(sn, t), sn); return tileLayout(z.W, z.H, paper, 10, opts).pages; };
+    const opts = { orient, margin: 8 }, fit = fitPlateToPage(s, tt, paper, opts);
+    assert.ok(fit && fit.faceBrief, `${paper} ${orient}`);
+    const pages = (w, h) => { const sn = { ...s, faceBrief: true, plateW: w, plateH: h }, z = faceSheetSize(buildDial(sn, tt), sn); return tileLayout(z.W, z.H, paper, 10, opts).pages; };
     assert.equal(pages(fit.plateW, fit.plateH), 1, `${paper} ${orient} fits`);
-    if (!extra.plateH) assert.ok(Math.abs(fit.plateH / fit.plateW - s.plateH / s.plateW) < 0.05, 'proportions kept');
-    assert.ok(pages(fit.plateW + 3, fit.plateH + 3) > 1, `${paper} ${orient} is the largest`);
+    assert.ok(pages(fit.plateW + 2, fit.plateH) > 1 && pages(fit.plateW, fit.plateH + 2) > 1, `${paper} ${orient} fills the page both ways`);
   }
-  assert.equal(fitPlateToPage(sanitize({}).s, makeT('en'), 'none', {}), null);
-  assert.ok(fitPlateToPage(sanitize({}).s, makeT('en'), 'A3', { margin: 8 }).plateW > fitPlateToPage(sanitize({}).s, makeT('en'), 'A4', { margin: 8 }).plateW);
+  // independent of the plate it starts from, and automatic orientation is at least as good as either forced one
+  const { s } = sanitize({ ...DEFAULTS, paper: 'A3' }), L = (o) => { const f = fitPlateToPage(s, tt, 'A3', { orient: o, margin: 8 }); return buildDial({ ...s, plateW: f.plateW, plateH: f.plateH }, tt).L; };
+  assert.ok(fitPlateToPage(sanitize({}).s, tt, 'A4', { orient: 'portrait', margin: 8 }), 'A4 portrait works with the short caption');
+  assert.deepEqual(fitPlateToPage({ ...s, plateW: 100, plateH: 90 }, tt, 'A3', { orient: 'auto', margin: 8 }), fitPlateToPage(s, tt, 'A3', { orient: 'auto', margin: 8 }));
+  assert.ok(L('auto') >= Math.max(L('portrait'), L('landscape')) - 1e-9);
+  assert.equal(fitPlateToPage(sanitize({}).s, tt, 'none', {}), null);
+  const big = (p) => fitPlateToPage(sanitize({}).s, tt, p, { margin: 8 });
+  assert.ok(big('A3').plateW * big('A3').plateH > big('A4').plateW * big('A4').plateH);
+  assert.ok(fitPlateToPage(sanitize({}).s, tt, 'A4', { orient: 'auto', margin: 2 }).plateH > big('A4').plateH, 'a smaller printer margin gives a bigger dial');
 });
 
 test('oversized triangular style: the whole triangle is rodX times bigger, notch on the hypotenuse at the true nodus', () => {
@@ -778,4 +783,19 @@ test('fit the gnomon template to one page: the largest scale that fits, shrinkin
   assert.ok(Ls.x3 < Ls.plain, 'a x3 gnomon needs a smaller L');
   assert.equal(fitGnomonToPage(sanitize({}).s, tt, 'none', opts), null);
   assert.ok(fitGnomonToPage(sanitize({}).s, tt, 'A3', opts).L > Ls.plain);
+});
+
+test('short dial caption: smaller sheet, no scale bar, still inside the sheet', () => {
+  const t = makeT('en');
+  for (const extra of [{}, { plateW: 130, plateH: 90 }, { lang: 'it' }]) {
+    const { s } = sanitize({ ...DEFAULTS, ...extra }), full = buildDial(s, makeT(s.lang));
+    const sb = { ...s, faceBrief: true }, tb = makeT(s.lang), d = buildDial(sb, tb);
+    const a = faceSheetSize(full, s), b = faceSheetSize(d, sb);
+    assert.ok(b.H <= a.H - 20 && b.W <= a.W, 'smaller');
+    const sh = faceSheet(d, { s: sb, t: tb, place: 'T', dateStr: 'x' });
+    assert.deepEqual([sh.W, sh.H], [b.W, b.H]);
+    assert.ok(!svgDoc(sh).includes('100 mm</text>') && !/NaN|undefined/.test(svgDoc(sh)));
+    assert.ok(svgDoc(faceSheet(full, { s, t: makeT(s.lang), place: 'T', dateStr: 'x' })).includes('100 mm</text>'), 'the full sheet keeps its scale bar');
+  }
+  assert.equal(sanitize({ faceBrief: '1' }).s.faceBrief, true);
 });
