@@ -4,7 +4,7 @@
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
 import { solarParams, dayMs, isDst, REF_YEAR, fmtHM, lonCorrection } from './astro.js';
-import { bladeHeight } from './dial.js';
+import { bladeHeight, absoluteDeclination } from './dial.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -199,7 +199,7 @@ function summaryLines(dial, ctx) {
   const systems = [s.hSolar && t('hSolar'), s.hZone && t('hZone'), s.anaMeanNoon && t('anaMeanNoon'), (s.anaZoneNoon || s.anaHours) && (s.anaHours ? t('anaHours') : t('anaZoneNoon'))].filter(Boolean).join(' · ');
   return [
     `${ctx.place ? ctx.place + ' — ' : ''}${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'}, UTC${s.tz >= 0 ? '+' : ''}${s.tz} (${s.dst})`,
-    `D = ${s.D.toFixed(1)}° (${t('faces')} ${((180 + s.D + 360) % 360).toFixed(1)}° N→E) · L = ${mm(dial.L)} · ${dial.plate.w.toFixed(0)} × ${dial.plate.h.toFixed(0)} mm`,
+    `D = ${s.D.toFixed(1)}° ${t('dRef')} (${t('faces')} ${((180 + absoluteDeclination(s.lat, s.D) + 360) % 360).toFixed(1)}° N→E) · L = ${mm(dial.L)} · ${dial.plate.w.toFixed(0)} × ${dial.plate.h.toFixed(0)} mm`,
     `${t('SH')} ${a.SH.toFixed(2)}° · ${t('SD')} ${a.SD.toFixed(2)}° · ${t('DL')} ${a.DL.toFixed(2)}°`,
     systems,
   ];

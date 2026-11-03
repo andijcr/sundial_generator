@@ -1,9 +1,9 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection } from './astro.js';
-import { shadowPoint } from './dial.js';
+import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
 import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileName } from './svg.js';
-import { DEFAULTS, PRESETS, WALL_PRESETS, sanitize, buildDial, serializeState, dstLabelsApply } from './state.js';
+import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
 
@@ -50,18 +50,27 @@ function fillSelects() {
   const place = $('#place');
   place.innerHTML = Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('') + `<option value="custom">${t('custom')}</option>`;
   place.value = state.place;
-  const wp = $('#wallPreset');
-  const dirs = t('dirs');
-  wp.innerHTML = `<option value="">${t('custom')}</option>` + Object.entries(WALL_PRESETS).map(([k, d]) => `<option value="${k}">${dirs[k] || k} (D = ${d}°)</option>`).join('');
-  syncWallPreset();
+  fillWallPresets(true);
 }
-function syncWallPreset() {
-  const k = Object.entries(WALL_PRESETS).find(([, d]) => Math.abs(d - state.D) < 1e-6);
-  $('#wallPreset').value = k ? k[0] : '';
+// The offered wall directions depend on the latitude (hemisphere, and tropics or not): rebuild only when that changes.
+let wallKey = '';
+function fillWallPresets(force) {
+  const key = `${state.lat < 0}|${wallLimit(state.lat)}|${state.lang}`;
+  if (force || key !== wallKey) {
+    wallKey = key;
+    const dirs = t('dirs');
+    $('#wallPreset').innerHTML = `<option value="">${t('custom')}</option>` +
+      wallPresetsFor(state.lat).map((p) => `<option value="${p.D}">${dirs[p.key] || p.key} (D = ${p.D}°)</option>`).join('');
+  }
+  const hit = [...$('#wallPreset').options].find((o) => o.value !== '' && Math.abs(Number(o.value) - state.D) < 1e-6);
+  $('#wallPreset').value = hit ? hit.value : '';
 }
 
 // ---------------- controls ----------------
 function writeControls() {
+  const lim = wallLimit(state.lat); // set before the values below: assigning a value clamps it to the current range
+  for (const el of $$('[data-k="D"]')) { el.min = -lim; el.max = lim; }
+  $('#wallRange').textContent = t(lim === 180 ? 'wallRangeAny' : 'wallRangeSun');
   for (const el of $$('[data-k]')) {
     const k = el.dataset.k;
     if (k === 'place') continue;
@@ -73,7 +82,7 @@ function writeControls() {
   for (const el of $$('.manual')) el.disabled = state.auto;
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
-  $('#facesAz').textContent = `${((180 + state.D + 360) % 360).toFixed(1)}° (N→E)`;
+  $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;
   $('#frontWrap').hidden = !state.v2d;
   $('#v3dWrap').hidden = !state.v3d;
   $('.views').classList.toggle('both', state.v2d && state.v3d);
@@ -103,6 +112,8 @@ function onControl(e) {
     if (k === 'hQuarter' && v) state.hHalf = true;
   }
   update();
+  // A number field keeps focus after Enter and is then not rewritten: show the value that was actually used (it may have been clamped).
+  if (el.type === 'number' && typeof state[k] === 'number') el.value = +state[k].toFixed(4);
 }
 
 // ---------------- main update ----------------
@@ -115,7 +126,7 @@ function update() {
   dial = buildDial(state, t);
   if (state.v2d) $('#front').innerHTML = frontViewSvg(dial, { s: state, t });
   $('#place').value = state.place;
-  syncWallPreset();
+  fillWallPresets(false);
   writeControls();
   const all = [...warns, ...dial.warnings];
   $('#warnings').innerHTML = all.map(([k, ...a]) => `<li>⚠ ${t('w_' + k, ...a)}</li>`).join('');
@@ -131,7 +142,7 @@ function updateLearn() {
   const a = dial.angles;
   const subH = 12 + a.DL / 15;
   const v = {
-    D: `${state.D.toFixed(1)}°`, L: `${dial.L.toFixed(0)} mm`,
+    D: `${absoluteDeclination(state.lat, state.D).toFixed(1)}°`, L: `${dial.L.toFixed(0)} mm`,
     SH: `${a.SH.toFixed(2)}°`, SD: `${a.SD.toFixed(2)}°`, DL: `${a.DL.toFixed(2)}°`, subH: fmtHM(subH * 60),
     R: dial.root ? `(${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)})` : '—',
     lonCorr: `${fmtSigned(lonCorrection(state.lon, state.tz))} min`,
@@ -174,7 +185,7 @@ function renderTime() {
     if (tr) tr.innerHTML = time.trailOn ? trailMarkup(dial, time.trail) : '';
   }
   if (state.v3d) {
-    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: state.D, gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, trail: time.trailOn ? time.trail : [] });
+    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: absoluteDeclination(state.lat, state.D), gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, trail: time.trailOn ? time.trail : [] });
   }
   // readout
   const lit = sun.alt > 0 && S;
@@ -276,10 +287,10 @@ function bindMeasure() {
     const beta = Number($('#mBeta').value) || 0;
     if ([y, mo, d, h, mi].every(Number.isFinite)) {
       const sun = sunAt(utcFromCivil(y, mo - 1, d, h, mi, state.tz, state.dst), state.lat, state.lon);
-      shadowD = sun.alt > 0 ? norm180(sun.az - 180 - beta) : null;
+      shadowD = sun.alt > 0 ? relativeDeclination(state.lat, norm180(sun.az - 180 - beta)) : null;
       $('#mShadowOut').textContent = shadowD === null ? '— (sun below horizon)' : `${shadowD.toFixed(1)}°  (sun az ${sun.az.toFixed(1)}°)`;
     }
-    compassD = norm180((Number($('#mBearing').value) || 0) + (Number($('#mMagDecl').value) || 0) - 180);
+    compassD = relativeDeclination(state.lat, norm180((Number($('#mBearing').value) || 0) + (Number($('#mMagDecl').value) || 0) - 180));
     $('#mCompassOut').textContent = `${compassD.toFixed(1)}°`;
   };
   for (const id of ['#mDate', '#mTime', '#mBeta', '#mBearing', '#mMagDecl']) $(id).addEventListener('input', calc);
@@ -346,7 +357,7 @@ function init() {
   applyLang();
   $('#controls').addEventListener('input', (e) => { if (e.target.matches('input[type="range"][data-k], input[type="text"][data-k]')) onControl(e); });
   $('#controls').addEventListener('change', (e) => { if (e.target.matches('[data-k]')) onControl(e); });
-  $('#wallPreset').addEventListener('change', (e) => { if (e.target.value in WALL_PRESETS) { state.D = WALL_PRESETS[e.target.value]; update(); } });
+  $('#wallPreset').addEventListener('change', (e) => { if (e.target.value !== '') { state.D = Number(e.target.value); update(); } });
   for (const b of $$('[data-lang-btn]')) b.addEventListener('click', () => { state.lang = b.dataset.langBtn; applyLang(); update(); });
   $('#geo').addEventListener('click', () => {
     navigator.geolocation?.getCurrentPosition((pos) => {

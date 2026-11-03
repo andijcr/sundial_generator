@@ -34,6 +34,13 @@ outward normal from due south (D = +45° → faces SW, D = −45° → SE).
 We build an orthonormal wall frame: `n` (outward normal), `u` (horizontal,
 along the wall, pointing right as you face it), `v` (up).
 
+The page asks for the wall differently: as the declination **Δ from the
+equator-facing direction** (south in the northern hemisphere, north in the
+southern), west positive. In the north Δ = D; in the south D = 180° − Δ, so
+the same number means the mirrored wall on the other side of the equator (a
+SW 45° wall in Rome ↔ a NW 45° wall in Sydney). `absoluteDeclination` in
+`dial.js` converts at the boundary; the maths only ever sees D from south.
+
 Wall gets sun only when `s · n > 0` — that alone determines the useful
 hours (a SW wall in Rome: roughly 10:00 solar time to sunset).
 
@@ -134,8 +141,14 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
   parallel to wall when facing south).
 - |D| close to 90° (east/west walls): hour lines nearly parallel, substyle
   runs off the plate → warn; still computed correctly by the vector method.
-- |D| > 90° (north-ish walls): sun only early/late in summer → warn,
-  show "hours of sun on this wall per year".
+- Walls facing away from the sun (|Δ| > 90° from the equator-facing direction)
+  are not offered outside the tropics (|lat| ≥ 23.44°), where they get 2–4 h
+  of sun a day on average (Rome: 9.9 h for the south wall, 2.2 h for the north
+  one). Inside the tropics every direction is offered, since the sun is north
+  of overhead for part of the year (at 10° latitude the pole-facing wall still
+  gets about 5 h). `sanitize` clamps to ±90° with a warning, the slider range
+  and the presets follow the latitude, and "hours of sun on this wall per
+  year" is still shown.
 - Grazing sun (`s·n` → 0): shadow runs to infinity → cut points beyond
   the plate, never emit giant coordinates.
 - Southern hemisphere handled (pole is south, labels flip).

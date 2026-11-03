@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
-import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, serializeState, dstLabelsApply } from '../js/state.js';
+import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
+import { DEFAULTS, sanitize, buildDial, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, frontViewSvg, shadowMarkup } from '../js/svg.js';
 import { fmtHM } from '../js/astro.js';
 import { makeT, STRINGS } from '../js/i18n.js';
@@ -122,7 +122,8 @@ test('sanitize clamps and coerces', () => {
 test('sheets render for many configurations without NaN', () => {
   const configs = [
     {}, { lang: 'it', hZone: true, anaHours: true, hDstLabels: true, xItalian: true, xBabylonian: true, xAzimuth: true, xAltitude: true, dZodiac: true, dMonths: true },
-    { D: 90 }, { D: -90 }, { D: 180 }, { D: 0, lat: 5 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 180 },
+    { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
+    { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
     { gBlade: true }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
@@ -323,4 +324,75 @@ test('summer-time labels: the control is enabled exactly when the dial can draw 
       assert.equal(dstLabelCount(c) > 0, dstLabelsApply(s), JSON.stringify(c));
     }
   assert.equal(dstLabelsApply(DEFAULTS), false, 'default dial has solar lines only');
+});
+
+// ---- wall direction: declination from the equator-facing side, limited outside the tropics ----
+
+const sameAngle = (a, b) => Math.abs(((a - b + 540) % 360 + 360) % 360 - 180) < 1e-6; // equal modulo 360
+
+test('declination from the equator side maps to declination from south, and back', () => {
+  assert.equal(absoluteDeclination(41.9, 45), 45, 'north: unchanged (SW stays SW)');
+  assert.equal(absoluteDeclination(-33.9, 45), 135, 'south: 45° west of north is the north-west wall');
+  assert.equal(absoluteDeclination(-33.9, -45), -135, 'north-east');
+  assert.equal(absoluteDeclination(-33.9, 180), 0, 'the pole-facing wall in the south faces south');
+  assert.ok(sameAngle(absoluteDeclination(-33.9, 0), 180), 'equator-facing in the south faces north');
+  for (const lat of [-60, -10, 5, 40]) for (let d = -180; d <= 180; d += 15) {
+    assert.ok(sameAngle(relativeDeclination(lat, absoluteDeclination(lat, d)), d), `round trip lat ${lat} D ${d}`);
+  }
+});
+
+test('the dial of a southern wall mirrors the northern one with the same declination', () => {
+  for (const lat of [10, 25, 34, 42, 55, 65]) for (let d = -90; d <= 90; d += 15) {
+    const N = dialAngles(lat, absoluteDeclination(lat, d)), S = dialAngles(-lat, absoluteDeclination(-lat, d));
+    near(N.SH, S.SH, 1e-9, `style height lat ${lat} Δ ${d}`);
+    near(Math.abs(N.SD), Math.abs(S.SD), 1e-9, `substyle lat ${lat} Δ ${d}`);
+    near(sunStats(lat, absoluteDeclination(lat, d)).litPerDay, sunStats(-lat, absoluteDeclination(-lat, d)).litPerDay, 0.5, `sun hours lat ${lat} Δ ${d}`);
+  }
+});
+
+test('walls facing away from the sun are only offered inside the tropics', () => {
+  assert.equal(wallLimit(41.9), 90);
+  assert.equal(wallLimit(-33.9), 90);
+  assert.equal(wallLimit(TROPIC_LAT + 0.01), 90);
+  assert.equal(wallLimit(TROPIC_LAT - 0.01), 180);
+  assert.equal(wallLimit(-10), 180);
+  assert.equal(wallLimit(0), 180);
+  // the numbers behind the rule: a pole-facing wall is poor outside the tropics, fine inside
+  assert.ok(sunStats(41.9, 180).litPerDay < 3 && sunStats(10, 180).litPerDay > 4.5);
+});
+
+test('sanitize clamps the wall direction outside the tropics and keeps it inside', () => {
+  const w = (c) => sanitize({ ...DEFAULTS, ...c });
+  let r = w({ lat: 41.9, D: 180 });
+  assert.equal(r.s.D, 90); assert.ok(r.warnings.some(([k]) => k === 'wallClamped'));
+  r = w({ lat: -33.9, D: -120 });
+  assert.equal(r.s.D, -90); assert.ok(r.warnings.some(([k]) => k === 'wallClamped'));
+  r = w({ lat: 10, D: 180 });
+  assert.equal(r.s.D, 180); assert.ok(!r.warnings.some(([k]) => k === 'wallClamped'));
+  r = w({ lat: -33.9, D: 45 });
+  assert.equal(r.s.D, 45); assert.ok(!r.warnings.some(([k]) => k === 'wallClamped'));
+  assert.equal(w({ lat: 10, D: 180 }).s.D, 180);
+  assert.equal(w({ lat: 41.9, D: 180 }).s.D, 90, 'moving a pole-facing tropical wall to mid-latitudes pulls it back in range');
+});
+
+test('wall presets: offered by latitude, named by the direction the wall really faces', () => {
+  const names = (lat) => wallPresetsFor(lat).map((p) => p.key);
+  assert.deepEqual(names(41.9), ['E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W']);
+  assert.deepEqual(names(-33.9), ['E', 'ENE', 'NE', 'NNE', 'N', 'NNW', 'NW', 'WNW', 'W']);
+  assert.equal(names(10).length, 16, 'every direction inside the tropics');
+  assert.equal(new Set(names(10)).size, 16, 'no duplicates');
+  assert.equal(wallDirectionName(41.9, 45), 'SW');
+  assert.equal(wallDirectionName(-33.9, 45), 'NW');
+  assert.equal(wallDirectionName(-33.9, 0), 'N');
+  assert.equal(wallDirectionName(41.9, 180), 'N');
+  for (const lat of [41.9, -33.9, 10]) for (const p of wallPresetsFor(lat)) assert.ok(Math.abs(p.D) <= wallLimit(lat));
+  for (const k of ['NNW', 'NNE', 'ENE', 'WNW']) for (const lang of ['en', 'it']) assert.ok(makeT(lang)('dirs')[k], `${lang} name for ${k}`);
+});
+
+test('buildDial uses the declination from south: a Sydney NW wall equals the 135° wall', () => {
+  const t = makeT('en');
+  const sydney = buildDial(sanitize({ ...DEFAULTS, lat: -33.8688, lon: 151.2093, tz: 10, dst: 'AU', D: 45 }).s, t);
+  const a = dialAngles(-33.8688, 135);
+  near(sydney.angles.SH, a.SH, 1e-9); near(sydney.angles.SD, a.SD, 1e-9); near(sydney.angles.DL, a.DL, 1e-9);
+  assert.ok(sydney.stats.litPerDay > 7, `a north-west wall in Sydney is a sunny wall (${sydney.stats.litPerDay.toFixed(1)} h/day)`);
 });
