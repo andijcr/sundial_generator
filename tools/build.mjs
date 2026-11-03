@@ -29,6 +29,7 @@ const variants = {
   'rome-sw-laser': { material: 'laser' },
   'rome-sw-blade': { gPolar: false, gRod: false, gBlade: true },
   'london-south': { place: 'london', ...PRESETS.london, D: 0 },
+  'sydney-nw': { place: 'sydney', ...PRESETS.sydney, D: 45 }, // D is measured from the equator side: 45° west of north
 };
 
 const plans = join(out, 'plans');

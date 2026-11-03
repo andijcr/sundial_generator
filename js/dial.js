@@ -5,7 +5,7 @@
 // foot F (the point of the wall right behind the nodus), x to the right as you
 // face the wall, y up. The nodus N sits at distance L in front of F.
 
-import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD } from './astro.js';
+import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180 } from './astro.js';
 
 export const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -14,6 +14,21 @@ const range = (a, b, step) => {
   for (let x = a; x <= b + 1e-9; x += step) r.push(x);
   return r;
 };
+
+/** Inside this latitude the sun is north of the zenith for part of the year and south of it for the rest. */
+export const TROPIC_LAT = 23.44;
+
+/**
+ * The page describes a wall by its declination from the equator-facing direction (south in the
+ * northern hemisphere, north in the southern one), west positive, so the same number means the
+ * mirrored wall on the other side of the equator. The maths (`wallFrame`) wants D from due south.
+ * They are equal in the north, and D = 180° − Δ in the south. The conversion is its own inverse.
+ */
+export const absoluteDeclination = (lat, delta) => norm180(lat < 0 ? 180 - delta : delta);
+export const relativeDeclination = absoluteDeclination;
+
+/** Largest |Δ| offered. Walls facing away from the sun are only offered inside the tropics. */
+export const wallLimit = (lat) => (Math.abs(lat) < TROPIC_LAT ? 180 : 90);
 
 /**
  * Orthonormal frame of a vertical wall with declination D (deg, 0 = facing

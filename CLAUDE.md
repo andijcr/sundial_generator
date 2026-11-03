@@ -13,7 +13,8 @@ Wall sundial generator: a static, dependency-free page that simulates a vertical
 
 ## Conventions
 - One formula drives every mark: `shadowPoint` in `dial.js` projects the nodus (L in front of the foot F) along the sun direction onto the wall. Do not add special-case formulas; `dialAngles` exists only to cross-check in tests.
-- Vectors are `[east, north, up]`. Wall declination D: 0 faces south, positive turns west (45 = SW, 180 = north). Hour angle H is 0 at apparent noon and positive in the afternoon. EoT is apparent minus mean time.
+- The wall's `D` in state, the UI and the URL is measured from the *equator-facing* direction (south in the north, north in the south), west positive. `dial.js` wants D from due south. Convert with `absoluteDeclination(lat, D)` at the boundary (`buildDial`, the 3D view yaw, the "faces" text) and never pass state `D` straight to `computeDial`/`autoFit`. Outside |lat| < 23.44° (`TROPIC_LAT`) only |D| ≤ 90° is allowed (`wallLimit`, enforced by `sanitize`).
+- Vectors are `[east, north, up]`. Wall declination D from south (what `wallFrame` and `dial.js` use): 0 faces south, positive turns west (45 = SW, 180 = north). Hour angle H is 0 at apparent noon and positive in the afternoon. EoT is apparent minus mean time.
 - Dial coordinates are millimetres, origin at F, x to the right when facing the wall, y up. SVG y points down, so draw at `P.fy - y`.
 - Print sheets use real units (1 user unit = 1 mm); keep `width`/`height` in `mm`.
 - Settings live in `DEFAULTS` (`state.js`), and the URL hash stores only values that differ from it. `sanitize` clamps numbers and validates enums. Never put a URL-derived string into HTML or `document.write` without escaping or validating it (`place` is checked against `PRESETS` for this reason).

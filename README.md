@@ -8,6 +8,8 @@ Design a **vertical declining wall sundial** for any latitude and wall orientati
 
 Defaults: Rome (41.9028° N, 12.4964° E), wall facing south-west (D = 45°).
 
+**Wall direction.** The wall's declination D is measured from the equator-facing direction (south in the northern hemisphere, north in the southern), west positive, so the same number describes the mirrored wall on the other side of the equator: SW 45° in Rome is NW 45° in Sydney. Outside the tropics (|latitude| ≥ 23.44°) only walls facing the sun are offered (−90° to +90°), because a wall facing away gets 2–4 hours of sun a day at best. Within the tropics every direction is offered, since the sun is north of overhead for part of the year (a pole-facing wall at 10° latitude still gets about 5 hours).
+
 Every design choice is a checkbox, so you can compare options on the page:
 
 | Group | Options |

@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, BLADE_RATIO } from './dial.js';
+import { computeDial, autoFit, BLADE_RATIO, absoluteDeclination, wallLimit } from './dial.js';
 import { DST_RULES } from './astro.js';
 import { sizesFor } from './svg.js';
 
@@ -22,7 +22,20 @@ export const PRESETS = {
   sydney: { name: 'Sydney', lat: -33.8688, lon: 151.2093, tz: 10, dst: 'AU' },
 };
 
-export const WALL_PRESETS = { S: 0, SSW: 22.5, SW: 45, WSW: 67.5, W: 90, NW: 135, N: 180, NE: -135, E: -90, ESE: -67.5, SE: -45, SSE: -22.5 };
+const WINDS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+
+/** Compass name of the direction a wall faces, for declination delta (from the equator side) at this latitude. */
+export function wallDirectionName(lat, delta) {
+  const az = (180 + absoluteDeclination(lat, delta) + 360) % 360; // compass azimuth the wall faces
+  return WINDS[Math.round(az / 22.5) % 16];
+}
+
+/** Wall directions offered as presets at this latitude, by increasing declination: [{ key, D }]. */
+export function wallPresetsFor(lat) {
+  const lim = wallLimit(lat), out = [];
+  for (let d = -157.5; d <= 180; d += 22.5) if (Math.abs(d) <= lim) out.push({ key: wallDirectionName(lat, d), D: d });
+  return out;
+}
 
 export const DEFAULTS = {
   lang: 'en',
@@ -67,6 +80,9 @@ export function sanitize(input) {
       s[k] = String(s[k] ?? def);
     }
   }
+  // outside the tropics, walls facing away from the sun are not offered
+  const lim = wallLimit(s.lat);
+  if (Math.abs(s.D) > lim) { s.D = Math.sign(s.D) * lim; warnings.push(['wallClamped']); }
   if (!['paper', 'tile', 'laser'].includes(s.material)) s.material = 'paper';
   if (!DST_RULES.includes(s.dst)) s.dst = 'none';
   if (!Object.hasOwn(PRESETS, s.place)) s.place = 'custom';
@@ -97,18 +113,19 @@ export function serializeState(s) {
 
 /** Build the dial from sanitized state. Rounds L / foot to buildable values. */
 export function buildDial(s, t) {
+  const D = absoluteDeclination(s.lat, s.D); // s.D is measured from the equator-facing side; the maths wants D from south
   const plate = { w: s.plateW, h: s.plateH, margin: Math.max(4, Math.min(s.plateW, s.plateH) * 0.02) };
   const { fs } = sizesFor(s.material, plate);
   const bottomReserve = s.xInfo || s.motto ? fs * 1.4 : 0;
   let { L, fx, fy } = s;
   if (s.auto) {
     // extra room around the shadow region for the hour labels
-    const fit = autoFit(s.lat, s.D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
+    const fit = autoFit(s.lat, D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
       s.includeRoot && s.gBlade ? BLADE_RATIO : 0);
     L = r2(fit.L, 1); fx = r2(fit.fx, 0.5); fy = r2(fit.fy, 0.5);
   }
   return computeDial({
-    lat: s.lat, lon: s.lon, tz: s.tz, D: s.D, L,
+    lat: s.lat, lon: s.lon, tz: s.tz, D, L,
     plate: { ...plate, fx, fy }, fontSize: fs, opts: s, t, grazing: s.grazing, bottomReserve,
   });
 }
