@@ -165,6 +165,8 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
 ### Fit to a page
 `fitPlateToPage` (`state.js`) searches (bisection on the plate width, proportions kept) for the largest plate whose face sheet `tileLayout` puts on one page. It is a search because the sheet's margins depend on the foot and style root, which auto-fit moves with the plate. It is a button, not a mode, so it does not fight the plate fields. A plate too tall to fit even at 50 mm gets flatter proportions; a paper that cannot hold the 200 mm title block (A4 portrait) gives `null` and a warning.
 
+`fitGnomonToPage` bisects the scale L the same way for the gnomon sheet (its size depends on L, the gnomon types and `rodX`, not on the plate); it returns a manual L and the current foot, because L is the dial's scale and cannot change without moving the dial.
+
 ### Sanity bounds & warnings
 - Latitude clamped to ±66° (`BOUNDS`).
 - Auto-fit keeps the scale L within [`L_MIN`, `L_MAX`] (2–3000 mm). If no sun falls on the wall at the chosen

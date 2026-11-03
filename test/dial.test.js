@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, fitPlateToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
+import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
 import { printJobHtml, printJobPages, MAX_QUIET_PAGES } from '../js/svg.js';
@@ -761,4 +761,21 @@ test('oversized triangular style: the whole triangle is rodX times bigger, notch
     // the cut outline has the 3-point notch: 8 vertices instead of 3
     assert.equal(svg.match(/<polygon class="cut" points="([^"]+)"/)[1].split(' ').length, 6);
   }
+});
+
+test('fit the gnomon template to one page: the largest scale that fits, shrinking with the oversized options', () => {
+  const tt = makeT('en'), opts = { orient: 'auto', margin: 8 };
+  const Ls = {};
+  for (const [name, extra] of [['plain', {}], ['x3', { rodX: 3 }], ['blade', { gBlade: true }], ['rod', { gPolar: false }]]) {
+    const { s } = sanitize({ ...DEFAULTS, ...extra });
+    const fit = fitGnomonToPage(s, tt, 'A4', opts);
+    assert.ok(fit && fit.L >= L_MIN, name);
+    const pages = (L) => { const sn = { ...s, auto: false, L, fx: fit.fx, fy: fit.fy }, sh = gnomonSheet(buildDial(sn, tt), { s: sn, t: tt, place: '', dateStr: '' }); return tileLayout(sh.W, sh.H, 'A4', 10, opts).pages; };
+    assert.equal(pages(fit.L), 1, `${name} fits`);
+    assert.ok(pages(fit.L + 1) > 1 || fit.L >= L_MAX, `${name} is the largest`);
+    Ls[name] = fit.L;
+  }
+  assert.ok(Ls.x3 < Ls.plain, 'a x3 gnomon needs a smaller L');
+  assert.equal(fitGnomonToPage(sanitize({}).s, tt, 'none', opts), null);
+  assert.ok(fitGnomonToPage(sanitize({}).s, tt, 'A3', opts).L > Ls.plain);
 });

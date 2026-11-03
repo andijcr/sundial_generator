@@ -3,7 +3,7 @@
 
 import { computeDial, autoFit, BLADE_RATIO, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
-import { sizesFor, faceSheetSize, tileLayout } from './svg.js';
+import { sizesFor, faceSheetSize, gnomonSheet, tileLayout } from './svg.js';
 
 export const PRESETS = {
   rome: { name: 'Roma', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU' },
@@ -167,4 +167,24 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
   while (hi - lo > 1) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
   const [plateW, plateH] = size(lo);
   return { plateW, plateH };
+}
+
+/**
+ * The largest scale L (whole mm) for which the gnomon template is a single page of `paper`, or null when even the
+ * smallest does not fit (an oversized gnomon on a small paper, say). The template grows with L, so this bisects.
+ * Returns { L, fx, fy }: switch to manual scale with that L and the foot where the automatic fit put it, so the dial
+ * keeps its place on the plate and only shrinks (or grows) around the foot.
+ */
+export function fitGnomonToPage(s, t, paper, opts = {}) {
+  const base = buildDial(s, t), fx = base.plate.fx, fy = base.plate.fy;
+  const fits = (L) => {
+    const sn = { ...s, auto: false, L, fx, fy };
+    const sh = gnomonSheet(buildDial(sn, t), { s: sn, t, place: '', dateStr: '' });
+    return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1;
+  };
+  if (!fits(L_MIN)) return null;
+  let lo = L_MIN, hi = L_MAX;
+  if (fits(hi)) return { L: hi, fx, fy };
+  while (hi - lo > 0.01) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+  return { L: Math.floor(lo), fx, fy };
 }
