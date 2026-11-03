@@ -81,6 +81,7 @@ function writeControls() {
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
   $('[data-k="rodX"]').disabled = !state.gRod && !state.gPolar; // it lengthens the rod and the style edge
+  $('[data-k="bladeR"]').disabled = !state.gBlade; // only the blade has a height
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
   $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;

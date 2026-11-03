@@ -128,7 +128,7 @@ test('sheets render for many configurations without NaN', () => {
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
     { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
-    { gBlade: true }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
+    { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
     const { s } = sanitize({ ...DEFAULTS, ...c });
@@ -798,4 +798,31 @@ test('short dial caption: smaller sheet, no scale bar, still inside the sheet', 
     assert.ok(svgDoc(faceSheet(full, { s, t: makeT(s.lang), place: 'T', dateStr: 'x' })).includes('100 mm</text>'), 'the full sheet keeps its scale bar');
   }
   assert.equal(sanitize({ faceBrief: '1' }).s.faceBrief, true);
+});
+
+test('blade height: bladeR × L everywhere (front view, shadow, template, auto-fit headroom), bounded, in the URL', () => {
+  for (const r of [0.3, 0.6, 1, 2, 3]) {
+    const { s, dial } = bladeCfg({ bladeR: r });
+    near(dial.bladeH, dial.L * r, 1e-9, `r = ${r}`);
+    const P = dial.plate;
+    // the front view's bar and the shadow triangle reach the blade top
+    const bar = frontViewSvg(dial, { s }).match(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/);
+    near(+bar[4], P.fy - dial.bladeH, 0.01, 'bar');
+    const S = shadowPoint(sunVector(10, 40, s.lat), dial.L, dial.frame);
+    assert.ok(shadowMarkup(dial, { s }, S).includes(`${Math.round(P.fx * 100) / 100},${Math.round((P.fy - dial.bladeH) * 100) / 100}`), 'shadow triangle');
+    // the template: height dimension, tip angle, and a fold tab whose slanted ends do not cross
+    const t = makeT('en'), sh = gnomonSheet(dial, { s, t, place: 'x', dateStr: 'x' }), svg = svgDoc(sh);
+    assert.ok(svg.includes(`h = ${dial.bladeH.toFixed(1)} mm`), `h for r = ${r}`);
+    assert.ok(svg.includes(`${(Math.atan2(dial.bladeH, dial.L) * 180 / Math.PI).toFixed(1)}°`) || dial.L < 45, 'tip angle');
+    const tab = [...svg.matchAll(/<polygon class="cut" points="([^"]+)"/g)].map((m) => m[1].split(' ').map((p) => p.split(',').map(Number)))[1];
+    assert.ok(tab[3][1] <= tab[2][1] + 1e-9, `tab ends do not cross for r = ${r}`);
+    assert.ok(!/NaN|undefined|Infinity/.test(svg));
+    // auto-fit keeps the blade top on the plate
+    assert.ok(P.fy - dial.bladeH >= P.margin - 1, `blade top inside the plate for r = ${r}`);
+  }
+  const r = (v) => sanitize({ ...DEFAULTS, bladeR: v }).s.bladeR;
+  assert.deepEqual([r(0.1), r(9), r(1.5)], [0.3, 3, 1.5]);
+  assert.equal(DEFAULTS.bladeR, 1, 'the 45° blade by default');
+  const back = sanitize(Object.fromEntries(new URLSearchParams(serializeState(sanitize({ ...DEFAULTS, gBlade: true, bladeR: 0.5 }).s)))).s;
+  assert.equal(back.bladeR, 0.5);
 });

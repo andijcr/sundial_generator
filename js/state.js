@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, BLADE_RATIO, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
+import { computeDial, autoFit, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor, faceSheetSize, gnomonSheet, tileLayout } from './svg.js';
 
@@ -42,7 +42,7 @@ export const DEFAULTS = {
   place: 'rome', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU',
   D: 45,
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
-  gPolar: true, gRod: true, rodX: 1, gBlade: false,
+  gPolar: true, gRod: true, rodX: 1, gBlade: false, bladeR: 1,
   hSolar: true, hZone: false, hHalf: true, hQuarter: false, hRoman: false, hExtend: true, hDstLabels: false,
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false,
@@ -58,7 +58,7 @@ export const ROD_SCALES = [1, 2, 3, 5];
 export const BOUNDS = {
   lat: [-66, 66], lon: [-180, 180], tz: [-12, 14], D: [-180, 180],
   plateW: [50, 5000], plateH: [50, 5000], L: [L_MIN, L_MAX], fx: [-10000, 10000], fy: [-10000, 10000],
-  grazing: [1, 40], rodX: [1, 5], overlap: [0, 60], printMargin: [0, 30],
+  grazing: [1, 40], rodX: [1, 5], bladeR: [0.3, 3], overlap: [0, 60], printMargin: [0, 30],
 };
 
 /** Coerce types, clamp to bounds. Returns { s, warnings }. */
@@ -129,7 +129,7 @@ export function buildDial(s, t) {
   if (s.auto) {
     // extra room around the shadow region for the hour labels
     fit = autoFit(s.lat, D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
-      s.includeRoot && s.gBlade ? BLADE_RATIO : 0);
+      s.includeRoot && s.gBlade ? s.bladeR : 0);
     L = r2(fit.L, 1); fx = r2(fit.fx, 0.5); fy = r2(fit.fy, 0.5);
   }
   const dial = computeDial({

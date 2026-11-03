@@ -4,7 +4,7 @@
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
 import { dayMs, REF_YEAR, fmtHM, lonCorrection, yearCorrections } from './astro.js';
-import { bladeHeight, absoluteDeclination } from './dial.js';
+import { absoluteDeclination } from './dial.js';
 import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
@@ -121,7 +121,7 @@ export function frontViewSvg(dial, ctx) {
   }
   if (ctx.s.gBlade) {
     // seen from the front the blade is edge-on: a vertical bar from F up to height h
-    g += `<line x1="${f(P.fx)}" y1="${f(P.fy)}" x2="${f(P.fx)}" y2="${f(P.fy - bladeHeight(dial.L))}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
+    g += `<line x1="${f(P.fx)}" y1="${f(P.fy)}" x2="${f(P.fx)}" y2="${f(P.fy - dial.bladeH)}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
   }
   // rod and blade both point at the viewer from F: one dot
   if (ctx.s.gRod || ctx.s.gBlade) g += `<circle cx="${f(P.fx)}" cy="${f(P.fy)}" r="${f(dial.fontSize * 0.35)}" fill="#2b2b2b"/>`;
@@ -151,7 +151,7 @@ export function shadowMarkup(dial, ctx, S, trail) {
       out += `<polygon points="${X(Rt)},${Y(Rt)} ${X(Fp)},${Y(Fp)} ${X(Ep)},${Y(Ep)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gBlade) {
-      const A = [0, bladeHeight(dial.L)];
+      const A = [0, dial.bladeH];
       out += `<polygon points="${X(A)},${Y(A)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gRod) {
@@ -370,8 +370,8 @@ export function gnomonSheet(dial, ctx) {
   if (s.gBlade) {
     // flat fin in the vertical plane: wall edge on the left (F at its foot), bottom edge out to the nodus N,
     // sloping edge back up to the wall at height h. A fold tab runs along the wall edge.
-    const h = bladeHeight(L), tb = Math.min(TAB, L / 4);
-    const bx = x + TAB + 10, ay = top + 10, fy = ay + h;
+    const h = dial.bladeH, tb = Math.min(TAB, L / 4, h / 3); // a low blade gets a narrower tab (its slanted ends must not cross)
+    const bx = x + TAB + 10 + (h > 28 ? 0 : 22), ay = top + 10, fy = ay + h; // a short height dimension puts its label to the left of its line: make room
     const tip = Math.atan2(h, L) * 180 / Math.PI, th = tip * Math.PI / 180;
     let g = `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx + L)},${f(fy)}"/>`;
     g += `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx - tb)},${f(fy - tb)} ${f(bx - tb)},${f(ay + tb)}"/>`;

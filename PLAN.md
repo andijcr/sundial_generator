@@ -118,7 +118,7 @@ point of shadow-casting material there, so several constructions share one dial:
 | Triangular polar style | the shadow of the whole edge | latitude and D (`sin SH = cos φ cos D`, plate along the substyle, `tan SD = sin D / tan φ`) | sharpest reading; impossible when the axis is parallel to the wall (D = ±90°) |
 | Perpendicular rod | the shadow of the tip | only L | simplest; fuzzy tip |
 | Oversized rod / style edge (×2, ×3, ×5; the whole style triangle is scaled ×k about R, with a notch on the hypotenuse at the true N) | the shadow of the notch, on a long shadow line from F | only L (notch L from the wall) | a rod k times longer: its shadow is k·P, so the line out of F gives the direction and the notch's shadow the point P |
-| Vertical blade | the shadow of the tip | only L (blade height h = L, 45° brace) | flat fin in the vertical plane ⟂ wall; easy to cut and mount; also works for east/west walls |
+| Vertical blade | the shadow of the tip | only L (blade height h = bladeR × L, 0.3–3, default 1: a 45° brace) | flat fin in the vertical plane ⟂ wall; easy to cut and mount; also works for east/west walls |
 
 A *vertical edge* cannot be a polar style (it is parallel to the Earth's axis
 only at the poles); its shadow gives azimuth, not time. Open idea: let the user
@@ -230,7 +230,7 @@ Pages. No npm install required to run; `node --test` for the maths tests.
 
 Milestones 1-7 are done. Known gaps and ideas: during animation the trail and
 3D view are redrawn in full every frame; with every option on, some labels at
-the foot of the figure-8s overlap; adjustable blade height; pinhole nodus.
+the foot of the figure-8s overlap; pinhole nodus.
 
 ## 5. Later: gnomon width (thickness) and the build
 

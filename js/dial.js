@@ -46,10 +46,11 @@ export function wallFrame(D) {
  * wall normal and the vertical. Its lower edge runs from the foot F out to the
  * nodus (distance L); its upper edge slopes back to the wall at height h above F.
  * Only the tip (nodus) is read, so the dial itself is the same as for a rod.
- * h is a fixed fraction of L (a 45° brace).
+ * h = r·L, with r the setting `bladeR` (default 1: a 45° brace). A low blade is less conspicuous,
+ * a tall one stiffer; the tip, and so the dial, stays the same.
  */
 export const BLADE_RATIO = 1;
-export const bladeHeight = (L) => L * BLADE_RATIO;
+export const bladeHeight = (L, r = BLADE_RATIO) => L * r;
 
 /** Direction of the north celestial pole in [east, north, up]. */
 export function poleAxis(lat) {
@@ -540,5 +541,5 @@ export function computeDial(cfg) {
   if (b.n && (b.x0 * L < clip.x0 - 1 || b.x1 * L > clip.x1 + 1 || b.y0 * L < clip.y0 - 1 || b.y1 * L > clip.y1 + 1)) warnings.push(['clipped']);
   if (root && (root[0] < clip.x0 - m || root[0] > clip.x1 + m || root[1] < clip.y0 - m || root[1] > clip.y1 + m) && o.gPolar) warnings.push(['rootOutside']);
 
-  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs };
+  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs, bladeH: bladeHeight(L, o.bladeR ?? BLADE_RATIO) };
 }
