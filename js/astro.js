@@ -14,6 +14,17 @@ const tand = (d) => Math.tan(d * DEG);
 export const norm360 = (a) => ((a % 360) + 360) % 360;
 export const norm180 = (a) => norm360(a + 180) - 180;
 
+/**
+ * UTC time (ms) of a calendar date. Like Date.UTC, but the years 0-99 are the years 0-99, not 1900-1999
+ * (a date typed as "0050-01-01" must not turn into 1950).
+ */
+export function utcMs(y, mo, d = 1, h = 0, mi = 0) {
+  const dt = new Date(0);
+  dt.setUTCFullYear(y, mo, d);
+  dt.setUTCHours(h, mi, 0, 0);
+  return dt.getTime();
+}
+
 /** Julian day from a Unix timestamp in milliseconds. */
 export function julianDay(ms) {
   return ms / 86400000 + 2440587.5;
@@ -91,16 +102,16 @@ export function sunsetHourAngle(lat, decl) {
 export const REF_YEAR = 2027;
 /** Noon UTC on day index i (0 = Jan 1) of the reference year. */
 export function dayMs(i, year = REF_YEAR) {
-  return Date.UTC(year, 0, 1 + i, 12);
+  return utcMs(year, 0, 1 + i, 12);
 }
 
 // ---- Civil time / daylight saving ----
 function lastSunday(y, m) {
-  const d = new Date(Date.UTC(y, m + 1, 0));
+  const d = new Date(utcMs(y, m + 1, 0));
   return d.getUTCDate() - d.getUTCDay();
 }
 function nthSunday(y, m, n) {
-  const first = new Date(Date.UTC(y, m, 1)).getUTCDay();
+  const first = new Date(utcMs(y, m, 1)).getUTCDay();
   return 1 + ((7 - first) % 7) + 7 * (n - 1);
 }
 
@@ -123,13 +134,16 @@ export const lonCorrection = (lon, tz) => -4 * norm180(lon - 15 * tz);
  * Used by the correction table and the correction chart, so they cannot disagree.
  */
 export function yearCorrections(lon, tz, rule) {
-  const lc = lonCorrection(lon, tz), out = [];
+  const out = [];
   for (let i = 0; i < 365; i++) {
     const ms = dayMs(i), { eot } = solarParams(ms);
-    out.push({ i, eot, solar: lc - eot, zone: -eot, dst: rule !== 'none' && isDst(ms, tz, rule) });
+    out.push({ i, eot, ...correctionAt(lon, tz, eot), dst: rule !== 'none' && isDst(ms, tz, rule) });
   }
   return out;
 }
+
+/** The same correction at one instant, given the equation of time then (minutes): { solar, zone }. The one place the formulas live. */
+export const correctionAt = (lon, tz, eot) => ({ solar: lonCorrection(lon, tz) - eot, zone: -eot });
 
 /** Format minutes after midnight as HH:MM (wraps around 24 h, rounds to the minute). */
 export function fmtHM(min) {
@@ -142,17 +156,17 @@ export function isDst(ms, tz, rule) {
   const y = new Date(ms).getUTCFullYear();
   const H = 3600000;
   if (rule === 'EU') {
-    return ms >= Date.UTC(y, 2, lastSunday(y, 2), 1) && ms < Date.UTC(y, 9, lastSunday(y, 9), 1);
+    return ms >= utcMs(y, 2, lastSunday(y, 2), 1) && ms < utcMs(y, 9, lastSunday(y, 9), 1);
   }
   if (rule === 'US') {
-    const start = Date.UTC(y, 2, nthSunday(y, 2, 2), 2) - tz * H;
-    const end = Date.UTC(y, 10, nthSunday(y, 10, 1), 1) - tz * H;
+    const start = utcMs(y, 2, nthSunday(y, 2, 2), 2) - tz * H;
+    const end = utcMs(y, 10, nthSunday(y, 10, 1), 1) - tz * H;
     return ms >= start && ms < end;
   }
   if (rule === 'AU') {
     // southern hemisphere: first Sunday of October → first Sunday of April
-    const start = Date.UTC(y, 9, nthSunday(y, 9, 1), 2) - tz * H;
-    const end = Date.UTC(y, 3, nthSunday(y, 3, 1), 2) - tz * H;
+    const start = utcMs(y, 9, nthSunday(y, 9, 1), 2) - tz * H;
+    const end = utcMs(y, 3, nthSunday(y, 3, 1), 2) - tz * H;
     return ms >= start || ms < end;
   }
   return false;
@@ -175,6 +189,6 @@ export function civilFromUtc(ms, tz, rule) {
 
 /** UTC instant for a civil date/time at the site. */
 export function utcFromCivil(y, mo, d, h, mi, tz, rule) {
-  const base = Date.UTC(y, mo, d, h, mi) - tz * 3600000;
+  const base = utcMs(y, mo, d, h, mi) - tz * 3600000;
   return isDst(base - 3600000, tz, rule) ? base - 3600000 : base;
 }

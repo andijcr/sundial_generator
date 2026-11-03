@@ -162,8 +162,10 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
   job, with CSS named pages so each can have its own paper orientation.
 
 ### Sanity bounds & warnings
-- Latitude clamped to ±(66.5°−ε); warn near the equator (gnomon nearly
-  parallel to wall when facing south).
+- Latitude clamped to ±66° (`BOUNDS`).
+- Auto-fit keeps the scale L within [`L_MIN`, `L_MAX`] (2–3000 mm). If no sun falls on the wall at the chosen
+  grazing angle it relaxes the angle (warning `fitRelaxed`), and a plate so large that L would exceed the cap gets
+  a `fitClamped` warning. A time zone more than about 3 h from the place's longitude warns (`zoneFar`).
 - |D| close to 90° (east/west walls): hour lines nearly parallel, substyle
   runs off the plate → warn; still computed correctly by the vector method.
 - Walls facing away from the sun (|Δ| > 90° from the equator-facing direction)

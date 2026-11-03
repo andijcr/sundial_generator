@@ -5,6 +5,7 @@
 
 import { dayMs, REF_YEAR, fmtHM, lonCorrection, yearCorrections } from './astro.js';
 import { bladeHeight, absoluteDeclination } from './dial.js';
+import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -70,7 +71,7 @@ function sheetCss(bw) {
 .dt{font-family:Helvetica,Arial,sans-serif;font-size:3.5px;fill:${text};text-anchor:middle}
 .st{font-family:Helvetica,Arial,sans-serif;fill:${text}}.sb{font-weight:bold}
 .cut{fill:${bw ? 'none' : '#f3efe4'};stroke:#000;stroke-width:0.35}.fold{stroke:#000;stroke-width:0.3;stroke-dasharray:3 2;fill:none}
-.reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:${bw ? '#000' : '#999'};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${bw ? '#000' : '#c0392b'}}` + graphCss(bw);
+.reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:${bw ? '#000' : '#999'};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${bw ? '#000' : '#c0392b'}}`;
 }
 
 const defs = (bw) => `<defs><marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${bw ? '#000' : '#444'}"/></marker></defs>`;
@@ -124,7 +125,7 @@ export function frontViewSvg(dial, ctx) {
   }
   // rod and blade both point at the viewer from F: one dot
   if (ctx.s.gRod || ctx.s.gBlade) g += `<circle cx="${f(P.fx)}" cy="${f(P.fy)}" r="${f(dial.fontSize * 0.35)}" fill="#2b2b2b"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(-pad)} ${f(-pad)} ${f(P.w + 2 * pad)} ${f(P.h + 2 * pad)}" role="img">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(-pad)} ${f(-pad)} ${f(P.w + 2 * pad)} ${f(P.h + 2 * pad)}" role="img" aria-label="${esc(ctx.t ? ctx.t('v2d') : 'Front view')}">
 <style>${dialCss(ctx.s.material === 'laser' ? 'paper' : ctx.s.material, sw)}</style>
 <defs><pattern id="bricks" width="60" height="30" patternUnits="userSpaceOnUse"><rect width="60" height="30" fill="#d9c7a7"/><path d="M0 0H60M0 15H60M30 0V15M0 15V30M60 15V30" stroke="#c7b28e" stroke-width="1"/></pattern>
 <clipPath id="wallclip"><rect x="${f(-pad)}" y="${f(-pad)}" width="${f(P.w + 2 * pad)}" height="${f(P.h + 2 * pad)}"/></clipPath></defs>
@@ -331,7 +332,7 @@ export function gnomonSheet(dial, ctx) {
     inner += g;
     x += a + 36;
     right = Math.max(right, ox + a + 24);
-    H = Math.max(H, oy + tb + 30);
+    H = Math.max(H, oy + tb + 27); // the bottom of the captions under the tab
   } else if (s.gPolar) {
     const lines = wrapText(t('noPolar'), 40);
     inner += textLines(M, top + 8, lines, 4);
@@ -372,10 +373,11 @@ export function gnomonSheet(dial, ctx) {
     const caption = [t('bladeWallEdge')];
     if (!roomy) caption.push(`${t('bladeTop')}: ↑ · ${tip.toFixed(1)}° · ${t('bladeBrace')} ${mm(Math.hypot(L, h))}`);
     if (!tabFits) caption.push(t('bladeTabAt'));
-    inner += textLines(bx - tb, fy + 22, [...caption, ...wrapText(`${t('blade')}: ${t('bladeNote')}`, 52)], 3.2);
+    const bladeLines = [...caption, ...wrapText(`${t('blade')}: ${t('bladeNote')}`, 52)];
+    inner += textLines(bx - tb, fy + 22, bladeLines, 3.2);
     x += Math.max(TAB + L + 70, 115);
     right = Math.max(right, bx + L + 24, bx - tb + 90);
-    H = Math.max(H, fy + 40);
+    H = Math.max(H, fy + 22 + bladeLines.length * 3.2 * 1.45); // the bottom of the caption
   }
   if (s.gRod || (s.gPolar && !dial.root)) {
     const EMB = 30, ox = x + 10, oy = top + 10;
@@ -385,14 +387,16 @@ export function gnomonSheet(dial, ctx) {
     g += dimV(oy, oy + L, ox + 14, ox + 2, `L = ${mm(L)}`);
     g += `<text class="dt" x="${f(ox + 6)}" y="${f(oy + L + EMB / 2)}" style="text-anchor:start">${EMB} mm ${esc(t('rodEmbed'))}</text>`;
     g += `<text class="dt" x="${f(ox + 6)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
-    g += textLines(ox - 2, oy + L + EMB + 6, wrapText(`${t('rod')}: ${t('rodNote')}`, 38), 3.5);
+    const rodLines = wrapText(`${t('rod')}: ${t('rodNote')}`, 38);
+    g += textLines(ox - 2, oy + L + EMB + 6, rodLines, 3.5);
     inner += g;
     right = Math.max(right, ox + 30, ox - 2 + 38 * 1.9);
-    H = Math.max(H, oy + L + EMB + 14);
+    H = Math.max(H, oy + L + EMB + 6 + rodLines.length * 3.5 * 1.45); // the bottom of the caption
   }
   const W = Math.max(Math.ceil(right + 12), 180);
-  H += 30;
-  inner += textLines(M, H - 18, summaryLines(dial, ctx).slice(0, 3), 3.2);
+  // the summary sits just below the drawing, so the sheet is no taller than it needs to be (it should fit an A4 page)
+  inner += textLines(M, H + 6, summaryLines(dial, ctx).slice(0, 3), 3.2);
+  H = Math.ceil(H + 6 + 2 * 3.2 * 1.45 + 5);
   return { W, H, inner, css: '', name: 'gnomon', bw: s.ink === 'bw' };
 }
 
@@ -405,7 +409,7 @@ export const fmtMin = (m) => {
 
 export function infoSheet(dial, ctx) {
   const { s, t } = ctx;
-  const W = 190, x = 10; // fits an A4 page inside a typical printer margin; the height follows the content
+  const W = 186, x = 10; // fits an A4 page inside a printer margin of up to 12 mm; the height follows the content
   let y = 14;
   let inner = textLines(x, y, [{ t: `${t('title')} — ${t('sheetInfo')}`, b: true }], 4.8);
   y += 10;
@@ -419,7 +423,7 @@ export function infoSheet(dial, ctx) {
   const a = dial.angles;
   block([{ t: t('angles'), b: true },
     `${t('SH')}: ${a.SH.toFixed(2)}°   ${t('SD')}: ${a.SD.toFixed(2)}°   ${t('DL')}: ${a.DL.toFixed(2)}°   ${t('substyleHour')}: ${fmtHM((12 + a.DL / 15) * 60)}`,
-    dial.root ? `R = (${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)}) mm from F (x right, y up); |RF| = ${Math.hypot(...dial.root).toFixed(1)} mm` : t('noPolar'),
+    dial.root ? t('rootLine', dial.root[0].toFixed(1), dial.root[1].toFixed(1), Math.hypot(...dial.root).toFixed(1)) : t('noPolar'),
   ], 5);
   block([{ t: t('stepsTitle'), b: true }, ...t('steps').map((st, i) => `${i + 1}. ${st}`)], 4);
   // corrections table
@@ -482,9 +486,12 @@ export function correctionGraph(data, { x = 0, y = 0, w = 250, h = 100, t }) {
   const px = x + 13, py = y + 9, pw = w - 13 - 3, ph = h - 9 - 9; // room for the axis labels, the legend row and the month names
   const n = data.length, months = t('monthsShort');
   const all = data.flatMap((d) => [d.solar, d.zone]);
-  const step = Math.max(...all, 0) - Math.min(...all, 0) > 40 ? 10 : 5;
+  // a "nice" grid step that keeps the number of lines readable whatever the range (a very wrong time zone gives hundreds of minutes)
+  const raw = Math.max(...all, 0) - Math.min(...all, 0) + 4; // the data plus the padding below
+  const step = [5, 10, 20, 50, 100, 200, 500].find((s) => raw / s <= 8) || 1000;
   const lo = Math.floor((Math.min(...all, 0) - 2) / step) * step, hi = Math.ceil((Math.max(...all, 0) + 2) / step) * step;
-  const X = (day) => px + ((day + 0.5) / n) * pw;
+  const Xt = (days) => px + (days / n) * pw; // days since the start of the year (fractions allowed)
+  const X = (day) => Xt(day + 0.5); // the point of day i is its noon, half a day into the day
   const Y = (v) => py + ph - ((v - lo) / (hi - lo)) * ph;
   let g = '';
   // the months summer time is in force
@@ -509,9 +516,9 @@ export function correctionGraph(data, { x = 0, y = 0, w = 250, h = 100, t }) {
   g += `<path class="cg-zone" d="${path('zone')}"/><path class="cg-solar" d="${path('solar')}"/>`;
   // the extremes: value and date, above a maximum and below a minimum
   const dateOf = (i) => { const d = new Date(dayMs(i)); return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`; };
-  const sep = Math.max(...data.map((d) => Math.abs(d.solar - d.zone)));
+  const sepMm = Math.max(...data.map((d) => Math.abs(d.solar - d.zone))) * (ph / (hi - lo)); // distance between the curves on the sheet
   for (const [key, cls] of [['solar', 'cg-solar-dot'], ['zone', 'cg-zone-dot']]) {
-    if (key === 'zone' && sep < 2) continue; // the two curves almost coincide: one set of labels is enough
+    if (key === 'zone' && sepMm < 7) continue; // the curves coincide or are too close for two sets of labels (each is about 5 mm tall with its gap): one set is enough
     let imax = 0, imin = 0;
     data.forEach((d, i) => { if (d[key] > data[imax][key]) imax = i; if (d[key] < data[imin][key]) imin = i; });
     for (const [i, up] of [[imax, true], [imin, false]]) {
@@ -525,12 +532,15 @@ export function correctionGraph(data, { x = 0, y = 0, w = 250, h = 100, t }) {
   g += `<path class="cg-solar" d="M${f(px)} ${f(ly - 1.1)}h8"/><text class="cg-t" x="${f(px + 10)}" y="${f(ly)}">${esc(t('colSolar'))}</text>`;
   g += `<path class="cg-zone" d="M${f(px + 46)} ${f(ly - 1.1)}h8"/><text class="cg-t" x="${f(px + 56)}" y="${f(ly)}">${esc(t('colZone'))}</text>`;
   if (runs.length) g += `<rect class="cg-dst" x="${f(px + 92)}" y="${f(ly - 2.8)}" width="8" height="3.6"/><text class="cg-t" x="${f(px + 102)}" y="${f(ly)}">${esc(t('cgDst'))}</text>`;
-  return { markup: `<g>${g}</g>`, X, Y, lo, hi, box: { px, py, pw, ph } };
+  return { markup: `<g>${g}</g>`, X, Xt, Y, lo, hi, box: { px, py, pw, ph } };
 }
 
-/** "Today" on the chart: a vertical line and a dot on each curve. day: day of the year (fractions allowed). */
-export function correctionMarker(graph, day, solar, zone) {
-  const cx = graph.X(day), cl = (v) => Math.min(graph.hi, Math.max(graph.lo, v));
+/**
+ * "Today" on the chart: a vertical line and a dot on each curve. days: time since the start of the year, in days
+ * (so local noon on the third of January is 2.5, which is where that day's point of the curve is).
+ */
+export function correctionMarker(graph, days, solar, zone) {
+  const cx = graph.Xt(days), cl = (v) => Math.min(graph.hi, Math.max(graph.lo, v));
   return `<path class="cg-today" d="M${f(cx)} ${f(graph.box.py)}V${f(graph.box.py + graph.box.ph)}"/>` +
     `<circle class="cg-zone-dot" cx="${f(cx)}" cy="${f(graph.Y(cl(zone)))}" r="1.4"/><circle class="cg-solar-dot" cx="${f(cx)}" cy="${f(graph.Y(cl(solar)))}" r="1.4"/>`;
 }
@@ -544,10 +554,12 @@ export function correctionSheet(dial, ctx) {
   let inner = textLines(x, 14, [{ t: `${t('title')} — ${t('sheetCorr')}`, b: true }], 4.8);
   inner += textLines(x, 21, [summaryLines(dial, ctx)[0]], 3.4);
   inner += g.markup;
-  const notes = [t('cgHow'), t('cgLon', signed1(lonCorrection(s.lon, s.tz)))].flatMap((n) => wrapText(n, 130));
+  // the note about marked months only makes sense where summer time exists
+  const notes = [t(data.some((d) => d.dst) ? 'cgHow' : 'cgHowNoDst'), t('cgLon', signed1(lonCorrection(s.lon, s.tz)))].flatMap((n) => wrapText(n, 130));
   inner += textLines(x, gy + gh + 8, notes, 3.4);
   const H = Math.ceil(gy + gh + 8 + notes.length * 3.4 * 1.45 + 4);
-  return { W, H, inner, css: '', name: 'correction', bw: s.ink === 'bw' };
+  const bw = s.ink === 'bw';
+  return { W, H, inner, css: graphCss(bw), name: 'correction', bw }; // the chart's own CSS: no other sheet needs it
 }
 
 // ---------------- Tiling ----------------
@@ -608,14 +620,18 @@ export function tileSavings(W, H, lay) {
 export const tileName = (base, i, j) => `${base}-r${j + 1}c${i + 1}`;
 
 /**
- * Cut a sheet into printable pages (see tileLayout for opts). Neighbouring pages overlap, and the alignment
- * marks sit at the centres of the overlap zones so they coincide on two neighbouring pages.
- * Returns [{ name, svg, pw, ph, page, pages, orient }].
+ * Plan the pages of one sheet. Neighbouring pages overlap, and the alignment marks sit at the centres of
+ * the overlap zones so they coincide on two neighbouring pages. Returns null if there is no layout, else
+ * { lay, sheet, content, page(i, j, shared) }: page() builds one page. A self-contained page carries the whole
+ * sheet (for a download); a shared page only refers to `content`, which the caller defines once for all of the
+ * sheet's pages (a print job: hundreds of pages would otherwise mean hundreds of copies of the sheet).
+ * opts.t: translator for the page label (default English).
  */
-export function tileSheets(sheet, paper, overlap, label, opts = {}) {
+function planTiles(sheet, paper, overlap, label, opts) {
   const lay = tileLayout(sheet.W, sheet.H, paper, overlap, opts);
-  if (!lay) return [];
+  if (!lay) return null;
   const { pw, ph, aw, ah, nx, ny, sx, sy, tw, th, margin: pm, header, orient, overlap: ov, pages } = lay;
+  const t = opts.t || makeT('en');
   let regs = '';
   if (pages > 1) {
     const at = (n, step, len) => (n === 1 ? [ov / 2, len - ov / 2] : Array.from({ length: n + 1 }, (_, k) => k * step + ov / 2));
@@ -624,21 +640,64 @@ export function tileSheets(sheet, paper, overlap, label, opts = {}) {
     }
   }
   const px = pm + (aw - tw) / 2, py = pm + header + (ah - th) / 2; // where a tile starts on the page
-  const out = [];
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+  const contentId = `content-${sheet.name}`;
+  const content = `<g id="${contentId}">${sheet.inner}${regs}</g>`;
+  const page = (i, j, shared) => {
     const x0 = nx === 1 ? 0 : i * sx, y0 = ny === 1 ? 0 : j * sy;
     const vx = x0 - px, vy = y0 - py; // sheet coordinates of the page's top-left corner
-    const id = `clip-${sheet.name}-${i}-${j}`, page = j * nx + i + 1; // unique across sheets: several are printed in one document
-    const note = `${label} — ${pages > 1 ? `${page}/${pages} (${j + 1}/${ny} · ${i + 1}/${nx}) · ` : ''}${paper} ${orient} · ${ov ? `overlap ${f(ov)} mm · ` : ''}margin ${f(pm)} mm`;
-    const inner = `<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${f(tw)}" height="${f(th)}"/></clipPath>
-<g clip-path="url(#${id})">${sheet.inner}${regs}</g>
+    const id = `clip-${sheet.name}-${i}-${j}`, n = j * nx + i + 1; // unique across sheets: several are printed in one document
+    const parts = [pages > 1 && t('pageOf', n, pages, j + 1, ny, i + 1, nx), `${paper} ${t(orient === 'portrait' ? 'orientPortrait' : 'orientLandscape')}`, ov && t('pageOverlap', f(ov)), t('pageMargin', f(pm))];
+    const note = `${label} — ${parts.filter(Boolean).join(' · ')}`;
+    const body = `<clipPath id="${id}"><rect x="${f(x0)}" y="${f(y0)}" width="${f(tw)}" height="${f(th)}"/></clipPath>
+<g clip-path="url(#${id})">${shared ? `<use href="#${contentId}"/>` : sheet.inner + regs}</g>
 <rect class="tileb" x="${f(x0)}" y="${f(y0)}" width="${f(tw)}" height="${f(th)}"/>
 <text class="dt" x="${f(vx + pm)}" y="${f(vy + pm + 4.5)}" style="text-anchor:start">${esc(note)}</text>`;
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${pw}mm" height="${ph}mm" viewBox="${f(vx)} ${f(vy)} ${pw} ${ph}">
-${defs(sheet.bw)}<style>${sheet.css}${sheetCss(sheet.bw)}</style>${inner}</svg>`;
-    out.push({ name: tileName(sheet.name, i, j), svg, pw, ph, page, pages, orient });
-  }
+    const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}mm" height="${ph}mm" viewBox="${f(vx)} ${f(vy)} ${pw} ${ph}">`;
+    const svg = shared ? `${head}${body}</svg>`
+      : `<?xml version="1.0" encoding="UTF-8"?>\n${head}\n${defs(sheet.bw)}<style>${sheet.css}${sheetCss(sheet.bw)}</style>${body}</svg>`;
+    return { name: tileName(sheet.name, i, j), svg, pw, ph, page: n, pages, orient };
+  };
+  return { lay, sheet, content, page };
+}
+
+/**
+ * Cut a sheet into printable pages (see tileLayout for opts). Returns [{ name, svg, pw, ph, page, pages, orient }],
+ * each page a self-contained SVG. opts.only: build just that page (0-based, row by row) and no other.
+ */
+export function tileSheets(sheet, paper, overlap, label, opts = {}) {
+  const plan = planTiles(sheet, paper, overlap, label, opts);
+  if (!plan) return [];
+  const { nx, ny } = plan.lay, out = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) if (opts.only == null || opts.only === j * nx + i) out.push(plan.page(i, j, false));
   return out;
+}
+
+/** More pages than this in one print job: ask first (it is a lot of paper). */
+export const MAX_QUIET_PAGES = 60;
+
+/** Number of pages of a print job: sheets = [[sheet, label], ...]. */
+export function printJobPages(sheets, paper, overlap, opts = {}) {
+  return sheets.reduce((n, [sheet]) => n + (tileLayout(sheet.W, sheet.H, paper, overlap, opts)?.pages || 0), 0);
+}
+
+/**
+ * The HTML document of a print job: every page of every sheet, one after the other. Each page asks for its own
+ * paper size (CSS named pages), so a landscape dial and a portrait info sheet can share one job. A sheet's
+ * content is defined once and its pages refer to it, so the document stays small however many pages there are.
+ * Returns '' when nothing can be printed.
+ */
+export function printJobHtml(sheets, paper, overlap, opts, title) {
+  const plans = sheets.map(([sheet, label]) => planTiles(sheet, paper, overlap, label, opts)).filter(Boolean);
+  const pages = plans.flatMap((p) => { const out = []; for (let j = 0; j < p.lay.ny; j++) for (let i = 0; i < p.lay.nx; i++) out.push(p.page(i, j, true)); return out; });
+  if (!pages.length) return '';
+  const sizes = [...new Set(pages.map((p) => `${p.pw}x${p.ph}`))];
+  const css = `@page{size:${pages[0].pw}mm ${pages[0].ph}mm;margin:0}` +
+    sizes.map((z) => { const [pw, ph] = z.split('x'); return `@page p${z}{size:${pw}mm ${ph}mm;margin:0}`; }).join('') +
+    'html,body{margin:0}.pg{break-after:page;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pg svg{display:block}';
+  const holder = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${defs(plans[0].sheet.bw)}` +
+    plans.map((p) => `<style>${p.sheet.css}${sheetCss(p.sheet.bw)}</style><defs>${p.content}</defs>`).join('') + '</svg>';
+  return `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>${css}</style>${holder}` +
+    pages.map((p) => `<div class="pg" style="page:p${p.pw}x${p.ph};width:${p.pw}mm;height:${p.ph}mm">${p.svg}</div>`).join('') +
+    '<script>onload=()=>print()</script>';
 }
 

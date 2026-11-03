@@ -38,6 +38,7 @@ Unit tests do not catch overlapping or misplaced labels. Render the sheets and t
 - `assert.deepEqual` treats `-0` and `0` as different.
 - Do not use `pkill -f <pattern>` in the shell tool: it can match its own shell. Kill by port or pid.
 - Options that only matter alongside others must not be silent no-ops: disable the control in `writeControls` (`app.js`) and say why in its label (`hExtend` needs `gPolar`; `hDstLabels` needs zone-time lines or figure-8s, see `dstLabelsApply` in `state.js`).
+- `autoFit` clamps L to `L_MIN`..`L_MAX` and relaxes `grazing` when nothing is lit; `buildDial` turns both into warnings. Do not let a new code path pass an unbounded L on.
 - Auto-fit ignores sun within `grazing` degrees of the wall plane, so late-morning/low sun shadows can fall off the plate by design.
 - To undo an experiment (a mutation check, say), copy the file aside and copy it back. `git checkout <file>` also throws away your uncommitted edits to it, which once cost a rewrite.
 - `git fetch` can stall behind the proxy: run it as `timeout 90 git fetch origin <branch>`, kill a hung one by pid, and retry.
