@@ -1,7 +1,7 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR, sunVector, altAz, RAD } from './astro.js';
-import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
+import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
 import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
@@ -358,21 +358,70 @@ function bindMeasure() {
   const now = civilFromUtc(Date.now(), state.tz, state.dst);
   $('#mDate').value = `${now.y}-${pad2(now.mo + 1)}-${pad2(now.d)}`;
   $('#mTime').value = `${pad2(now.h)}:${pad2(now.mi)}`;
-  let shadowD = null, compassD = null;
+  let shadowD = null, compassD = null, meanD = null;
+  const readings = []; // shadow readings kept for averaging: { date, time, beta } (recomputed when the place changes)
+  const fromReading = (date, time, beta) => {
+    const [y, mo, d] = (date || '').split('-').map(Number);
+    const [h, mi] = (time || '').split(':').map(Number);
+    if (![y, mo, d, h, mi].every(Number.isFinite)) return undefined;
+    const sun = sunAt(utcFromCivil(y, mo - 1, d, h, mi, state.tz, state.dst), state.lat, state.lon);
+    return { sun, D: sun.alt > 0 ? relativeDeclination(state.lat, wallFromShadow(sun.az, beta)) : null };
+  };
   const calc = () => {
-    const [y, mo, d] = ($('#mDate').value || '').split('-').map(Number);
-    const [h, mi] = ($('#mTime').value || '').split(':').map(Number);
     const beta = Number($('#mBeta').value) || 0;
-    if ([y, mo, d, h, mi].every(Number.isFinite)) {
-      const sun = sunAt(utcFromCivil(y, mo - 1, d, h, mi, state.tz, state.dst), state.lat, state.lon);
-      shadowD = sun.alt > 0 ? relativeDeclination(state.lat, norm180(sun.az - 180 - beta)) : null;
-      $('#mShadowOut').textContent = shadowD === null ? t('mNoSun') : `${shadowD.toFixed(1)}°  (${t('mSunAz')} ${sun.az.toFixed(1)}°)`;
+    const r = fromReading($('#mDate').value, $('#mTime').value, beta);
+    if (r) {
+      shadowD = r.D;
+      $('#mShadowOut').textContent = shadowD === null ? t('mNoSun') : `${shadowD.toFixed(1)}°  (${t('mSunAz')} ${r.sun.az.toFixed(1)}°)`;
     }
+    $('#mShadowWarn').hidden = Math.abs(beta) < BETA_POOR;
+    $('#mShadowWarn').textContent = t('mBetaPoor');
+    // the kept readings and their mean
+    const ds = [];
+    $('#mReadings').innerHTML = readings.map((rd, i) => {
+      const x = fromReading(rd.date, rd.time, rd.beta);
+      if (x?.D != null) ds.push(x.D);
+      return `<li><span>${esc(t('mReading', rd.date, rd.time, rd.beta, x?.D == null ? '—' : x.D.toFixed(1)))}</span><button type="button" data-rm="${i}" aria-label="${esc(t('mRemove'))}">✕</button></li>`;
+    }).join('');
+    const m = circularMean(ds);
+    meanD = m && m.n > 1 ? m.mean : null;
+    $('#mMeanRow').hidden = meanD === null;
+    if (meanD !== null) $('#mMean').textContent = t('mMean', m.n, m.mean.toFixed(1), m.spread.toFixed(1));
     compassD = relativeDeclination(state.lat, norm180((Number($('#mBearing').value) || 0) + (Number($('#mMagDecl').value) || 0) - 180));
     $('#mCompassOut').textContent = `${compassD.toFixed(1)}°`;
   };
   for (const id of ['#mDate', '#mTime', '#mBeta', '#mBearing', '#mMagDecl']) $(id).addEventListener('input', calc);
   $('#mShadowApply').addEventListener('click', () => { if (shadowD !== null) { state.D = Math.round(shadowD * 10) / 10; update(); } });
+  $('#mAdd').addEventListener('click', () => {
+    // only the validated fields are kept (they are shown again in the list)
+    const date = $('#mDate').value, time = $('#mTime').value, beta = Number($('#mBeta').value) || 0;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(time) && fromReading(date, time, beta)?.D != null) { readings.push({ date, time, beta }); calc(); }
+  });
+  $('#mReadings').addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) { readings.splice(Number(b.dataset.rm), 1); calc(); } });
+  $('#mMeanApply').addEventListener('click', () => { if (meanD !== null) { state.D = Math.round(meanD * 10) / 10; update(); } });
+  // the phone's compass: average 3 seconds of headings (lying flat, top pointing away from the wall) into the bearing field
+  $('#mPhone').addEventListener('click', async () => {
+    const out = $('#mPhoneOut');
+    const DO = window.DeviceOrientationEvent;
+    if (!DO) { out.textContent = t('mPhoneNone'); return; }
+    if (typeof DO.requestPermission === 'function') { // iOS asks first
+      try { if (await DO.requestPermission() !== 'granted') { out.textContent = t('mPhoneDenied'); return; } } catch { out.textContent = t('mPhoneDenied'); return; }
+    }
+    const got = [];
+    const on = (e) => { const h = compassHeading(e); if (h !== null) { got.push(h); out.textContent = t('mPhoneWait', got.length); } };
+    const type = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
+    window.addEventListener(type, on);
+    out.textContent = t('mPhoneWait', 0);
+    setTimeout(() => {
+      window.removeEventListener(type, on);
+      const m = circularMean(got);
+      if (!m) { out.textContent = t('mPhoneNone'); return; }
+      const bearing = Math.round(((m.mean + 360) % 360) * 10) / 10;
+      $('#mBearing').value = bearing;
+      out.textContent = t('mPhoneDone', bearing.toFixed(1), m.spread.toFixed(1), m.n);
+      calc();
+    }, 3000);
+  });
   $('#mCompassApply').addEventListener('click', () => { state.D = Math.round(compassD * 10) / 10; update(); });
   // the shadow result depends on lat/lon/tz/dst: without this it kept the old place's value after a change
   refreshMeasure = calc;

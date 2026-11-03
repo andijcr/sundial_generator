@@ -44,7 +44,7 @@ Every design choice is a checkbox, so you can compare options on the page:
 
 **When the sun reaches the wall.** A chart on the page shows, for every day of the year and every ten minutes of (standard) clock time, whether the sun is on the wall, grazing it (within the auto-fit's grazing angle, where shadows get long and faint), behind it, or hidden by an obstacle, with the average, longest and shortest hours of sun per day. Hover over it for the date, time and the sun's height then. Obstacles go in the *Horizon profile* as compass azimuth:altitude pairs ("100:25, 180:12, 250:30"), interpolated around the horizon; they also hide the shadow in the simulation and count in the sun statistics and warnings. It answers "is this wall worth it?" before anything is cut.
 
-A "measure my wall" helper works out the wall declination from a shadow at a known time, or from a compass bearing.
+A "measure my wall" helper works out the wall declination from a shadow at a known time, or from a compass bearing. Several shadow readings can be kept and averaged (with their spread, so a bad one stands out), a shadow running almost along the wall gets a warning, and on a phone the compass can be read directly: lay the phone flat with its bottom edge against the wall and it averages three seconds of headings.
 
 ## Run it
 

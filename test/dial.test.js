@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sunVector, DEG } from '../js/astro.js';
-import { parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
+import { sunVector, DEG, norm180 } from '../js/astro.js';
+import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
@@ -984,4 +984,21 @@ test('sun chart: no broken numbers, legend inside the chart, hatched hidden cell
       assert.ok(+mk[1] <= px + pw + 1e-6 && +mk[2] <= py + ph + 1e-6 && +mk[2] >= py - 1e-6, 'marker clamped into the plot');
     }
   }
+});
+
+test('measuring the wall: shadow reading, circular mean and spread, compass events', () => {
+  for (const D of [0, 45, -60, 135, 180]) for (const az of [100, 180, 250]) {
+    near(Math.abs(norm180(wallFromShadow(az, norm180(az - 180 - D)) - D)), 0, 1e-9, `D ${D} az ${az}`);
+  }
+  near(wallFromShadow(225, 0), 45, 1e-9, 'sun straight in front of a SW wall');
+  const a = circularMean([179, -179]);
+  near(Math.abs(a.mean), 180, 1e-9, 'across ±180, not 0'); near(a.spread, 1, 0.01);
+  const b = circularMean([10, 20, 30]);
+  near(b.mean, 20, 1e-9); near(b.spread, Math.sqrt(200 / 3), 0.15, 'small spreads match the ordinary standard deviation'); assert.equal(b.n, 3);
+  assert.equal(circularMean([]), null);
+  assert.equal(compassHeading({ webkitCompassHeading: 370 }), 10, 'iOS heading');
+  assert.equal(compassHeading({ absolute: true, alpha: 90 }), 270, 'absolute alpha turns the other way');
+  assert.equal(compassHeading({ absolute: false, alpha: 90 }), null, 'a relative alpha is no heading');
+  assert.equal(compassHeading(null), null);
+  assert.ok(BETA_POOR > 45 && BETA_POOR < 90);
 });

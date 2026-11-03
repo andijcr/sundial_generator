@@ -205,8 +205,11 @@ room, else below it.
 Wall declination is the input most people get wrong. Helper tool: hold a
 plumb line / ruler against the wall, note the time when the shadow is
 perpendicular to the wall (or measure an angle at a known time) → page
-computes D from the sun's azimuth. Plus a compass method with magnetic
-declination note (~+4° E in Rome).
+computes D from the sun's azimuth (`wallFromShadow`). Shadow readings can be kept in a list and averaged around
+the circle (`circularMean`, mean and circular standard deviation); a β beyond ±75° (`BETA_POOR`) gets a warning,
+since the shadow then runs almost along the wall. Plus a compass method with magnetic declination (a link to
+NOAA's calculator), which can read the phone's compass: lying flat, top pointing away from the wall, 3 s of
+`deviceorientation` headings averaged (`compassHeading`: iOS `webkitCompassHeading`, else 360° − absolute α).
 
 ---
 

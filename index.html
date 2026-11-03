@@ -59,13 +59,19 @@
           <label><span data-i18n="time"></span><input type="time" id="mTime"></label>
         </div>
         <label><span data-i18n="beta"></span><input type="number" id="mBeta" value="0" step="0.5"></label>
-        <p class="hint">D = <b id="mShadowOut">–</b> <button type="button" id="mShadowApply" data-i18n="apply"></button></p>
+        <p class="hint">D = <b id="mShadowOut">–</b> <button type="button" id="mShadowApply" data-i18n="apply"></button> <button type="button" id="mAdd" data-i18n="mAdd"></button></p>
+        <p class="hint" id="mShadowWarn" hidden></p>
+        <ul class="readings" id="mReadings"></ul>
+        <p class="hint" id="mMeanRow" hidden><span id="mMean"></span> <button type="button" id="mMeanApply" data-i18n="mUseMean"></button></p>
         <h4 data-i18n="measureCompassTitle"></h4>
         <p class="hint" data-i18n="measureCompassHelp"></p>
+        <p class="hint"><button type="button" id="mPhone" data-i18n="mPhone"></button> <span id="mPhoneOut" aria-live="polite"></span></p>
+        <p class="hint" data-i18n="mPhoneHelp"></p>
         <div class="row2">
           <label><span data-i18n="bearing"></span><input type="number" id="mBearing" value="225" step="0.5"></label>
           <label><span data-i18n="magdecl"></span><input type="number" id="mMagDecl" value="4" step="0.1"></label>
         </div>
+        <p class="hint"><a href="https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml" target="_blank" rel="noopener" data-i18n="magdeclLink"></a></p>
         <p class="hint">D = <b id="mCompassOut">–</b> <button type="button" id="mCompassApply" data-i18n="apply"></button></p>
       </details>
     </details>

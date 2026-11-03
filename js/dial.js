@@ -27,6 +27,40 @@ export const TROPIC_LAT = 23.44;
 export const absoluteDeclination = (lat, delta) => norm180(lat < 0 ? 180 - delta : delta);
 export const relativeDeclination = absoluteDeclination;
 
+// ---- Measuring a wall ----
+
+/**
+ * Wall declination from south (deg, west +) from one shadow reading: the sun's azimuth (from north, clockwise) and the
+ * angle β of the shadow of a stick perpendicular to the wall, from the perpendicular, positive to the right as you face
+ * the wall. With β = 0 the sun is straight in front of the wall, so the wall faces the sun's azimuth: D = az − 180.
+ */
+export const wallFromShadow = (sunAz, beta) => norm180(sunAz - 180 - beta);
+
+/** A shadow at more than this angle from the perpendicular runs almost along the wall: the reading is poor. */
+export const BETA_POOR = 75;
+
+/**
+ * Mean of angles (deg) around the circle, and their spread (circular standard deviation, deg): readings of 179° and −179°
+ * average to 180°, not 0°. Returns { mean (−180..180), spread, n }, or null for no readings.
+ */
+export function circularMean(degs) {
+  if (!degs.length) return null;
+  const c = degs.reduce((a, d) => a + Math.cos(d * DEG), 0) / degs.length, s = degs.reduce((a, d) => a + Math.sin(d * DEG), 0) / degs.length;
+  const R = Math.min(1, Math.hypot(c, s));
+  return { mean: norm180(Math.atan2(s, c) * RAD), spread: R > 1e-12 ? Math.sqrt(-2 * Math.log(R)) * RAD : 180, n: degs.length };
+}
+
+/**
+ * Magnetic compass heading (deg from north, clockwise) of the top of a phone lying flat, from a deviceorientation event:
+ * iOS gives it directly (webkitCompassHeading); elsewhere an absolute event's alpha turns the other way (heading = 360 − α).
+ * null when the event carries no heading (not absolute, no magnetometer).
+ */
+export function compassHeading(e) {
+  if (e && Number.isFinite(e.webkitCompassHeading)) return norm360(e.webkitCompassHeading);
+  if (e && e.absolute && Number.isFinite(e.alpha)) return norm360(360 - e.alpha);
+  return null;
+}
+
 /** Largest |Δ| offered. Walls facing away from the sun are only offered inside the tropics. */
 export const wallLimit = (lat) => (Math.abs(lat) < TROPIC_LAT ? 180 : 90);
 

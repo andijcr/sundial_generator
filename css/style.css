@@ -92,3 +92,8 @@ label.chk:has(input:disabled) { color: var(--muted); }
 .sun-graph { position: relative; }
 .sun-graph svg { display: block; width: 100%; height: auto; cursor: crosshair; }
 .sun-tip { position: absolute; pointer-events: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 0.8rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15); max-width: min(340px, 92%); transform: translateY(calc(-100% - 10px)); }
+.readings { list-style: none; margin: 4px 0; padding: 0; font-size: 0.82rem; }
+.readings li { display: flex; align-items: center; gap: 6px; padding: 2px 0; border-bottom: 1px dashed var(--line); font-variant-numeric: tabular-nums; }
+.readings li span { flex: 1; }
+.readings button { padding: 0 6px; font-size: 0.78rem; }
+.controls a { color: var(--accent); }
