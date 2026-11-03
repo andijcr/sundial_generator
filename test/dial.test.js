@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, serializeState } from '../js/state.js';
+import { DEFAULTS, sanitize, buildDial, serializeState, dstLabelsApply } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, frontViewSvg, shadowMarkup } from '../js/svg.js';
 import { fmtHM } from '../js/astro.js';
 import { makeT, STRINGS } from '../js/i18n.js';
@@ -311,4 +311,16 @@ test('English and Italian have exactly the same string keys', () => {
   const en = Object.keys(STRINGS.en).sort(), it = Object.keys(STRINGS.it).sort();
   assert.deepEqual(en.filter((k) => !it.includes(k)), [], 'missing in Italian');
   assert.deepEqual(it.filter((k) => !en.includes(k)), [], 'missing in English');
+});
+
+test('summer-time labels: the control is enabled exactly when the dial can draw them', () => {
+  const dstLabelCount = (c) => buildDial(sanitize({ ...DEFAULTS, hDstLabels: true, ...c }).s, makeT('en'))
+    .layers.flatMap((l) => l.labels).filter((l) => l.cls === 'dst').length;
+  for (const hSolar of [true, false]) for (const hZone of [true, false]) for (const anaMeanNoon of [true, false])
+    for (const anaZoneNoon of [true, false]) for (const anaHours of [true, false]) {
+      const c = { hSolar, hZone, anaMeanNoon, anaZoneNoon, anaHours };
+      const { s } = sanitize({ ...DEFAULTS, hDstLabels: true, ...c });
+      assert.equal(dstLabelCount(c) > 0, dstLabelsApply(s), JSON.stringify(c));
+    }
+  assert.equal(dstLabelsApply(DEFAULTS), false, 'default dial has solar lines only');
 });

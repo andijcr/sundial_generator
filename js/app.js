@@ -3,7 +3,7 @@
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection } from './astro.js';
 import { shadowPoint } from './dial.js';
 import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileName } from './svg.js';
-import { DEFAULTS, PRESETS, WALL_PRESETS, sanitize, buildDial, serializeState } from './state.js';
+import { DEFAULTS, PRESETS, WALL_PRESETS, sanitize, buildDial, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
 
@@ -72,6 +72,7 @@ function writeControls() {
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
+  $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
   $('#facesAz').textContent = `${((180 + state.D + 360) % 360).toFixed(1)}° (N→E)`;
   $('#frontWrap').hidden = !state.v2d;
   $('#v3dWrap').hidden = !state.v3d;

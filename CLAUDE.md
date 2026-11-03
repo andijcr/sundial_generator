@@ -34,6 +34,7 @@ Unit tests do not catch overlapping or misplaced labels. Render the sheets and t
 - Element ids must be unique across the control panel and the SVG: a checkbox once collided with the SVG trail group. Scope lookups, e.g. `#front #trail`.
 - `assert.deepEqual` treats `-0` and `0` as different.
 - Do not use `pkill -f <pattern>` in the shell tool: it can match its own shell. Kill by port or pid.
+- Options that only matter alongside others must not be silent no-ops: disable the control in `writeControls` (`app.js`) and say why in its label (`hExtend` needs `gPolar`; `hDstLabels` needs zone-time lines or figure-8s, see `dstLabelsApply` in `state.js`).
 - Auto-fit ignores sun within `grazing` degrees of the wall plane, so late-morning/low sun shadows can fall off the plate by design.
 
 ## Workflow
