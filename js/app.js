@@ -1,8 +1,8 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
-import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, REF_YEAR } from './astro.js';
+import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
-import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName } from './svg.js';
+import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -143,14 +143,20 @@ function update() {
 let corr = null; // the chart's coordinate functions, for the "today" marker
 // The chart depends on the place, the time zone and summer time, and on the language: rebuilt on update(); only the marker moves with time.
 function renderCorrection() {
+  markerKey = ''; // the chart is rebuilt below, so the marker has to be drawn again
   corr = correctionGraph(yearCorrections(state.lon, state.tz, state.dst), { x: 0, y: 0, w: 262, h: 112, t });
   $('#corrGraph').innerHTML = `<svg viewBox="0 0 262 112" role="img" aria-label="${esc(t('corrTitle'))}"><style>${graphCss(false, true)}</style>${corr.markup}<g id="cg-today"></g></svg>`;
 }
+let markerKey = ''; // what the marker currently shows: nothing is redrawn while it would look the same (live mode ticks every second)
 function updateCorrectionMarker(sun, c) {
   if (!corr) return;
-  const day = Math.min(364, Math.round((Date.UTC(REF_YEAR, c.mo, c.d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000)) + (c.h * 60 + c.mi) / 1440;
-  const solar = lonCorrection(state.lon, state.tz) - sun.eot, zone = -sun.eot;
-  $('#cg-today').innerHTML = correctionMarker(corr, day, solar, zone);
+  const key = `${c.mo}-${c.d}-${c.h}-${c.mi}-${c.dst}`;
+  if (key === markerKey) return;
+  markerKey = key;
+  // days since the start of the year; the curve's point for a day is its noon, so local noon on day i is i + 0.5
+  const days = Math.min(364.99, Math.round((Date.UTC(REF_YEAR, c.mo, c.d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000) + (c.h * 60 + c.mi) / 1440);
+  const { solar, zone } = correctionAt(state.lon, state.tz, sun.eot);
+  $('#cg-today').innerHTML = correctionMarker(corr, days, solar, zone);
   $('#corrNow').textContent = t('cgToday', `${c.d} ${t('monthsShort')[c.mo]}`, fmtMin(solar), fmtMin(zone), c.dst ? t('cgTodayDst') : '');
 }
 
@@ -177,7 +183,7 @@ function setChosen(ms) {
 function syncTimeInputs() {
   const c = civilFromUtc(time.ms, state.tz, state.dst);
   const ae = document.activeElement;
-  if (ae !== $('#tDate')) $('#tDate').value = `${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)}`;
+  if (ae !== $('#tDate')) $('#tDate').value = `${String(c.y).padStart(4, '0')}-${pad2(c.mo + 1)}-${pad2(c.d)}`; // a date input wants four digits
   if (ae !== $('#tTime')) $('#tTime').value = `${pad2(c.h)}:${pad2(c.mi)}`;
   const doy = Math.round((Date.UTC(c.y, c.mo, c.d) - Date.UTC(c.y, 0, 1)) / 86400000);
   if (ae !== $('#tDoy')) $('#tDoy').value = doy;
@@ -305,7 +311,7 @@ function bindMeasure() {
     if ([y, mo, d, h, mi].every(Number.isFinite)) {
       const sun = sunAt(utcFromCivil(y, mo - 1, d, h, mi, state.tz, state.dst), state.lat, state.lon);
       shadowD = sun.alt > 0 ? relativeDeclination(state.lat, norm180(sun.az - 180 - beta)) : null;
-      $('#mShadowOut').textContent = shadowD === null ? '— (sun below horizon)' : `${shadowD.toFixed(1)}°  (sun az ${sun.az.toFixed(1)}°)`;
+      $('#mShadowOut').textContent = shadowD === null ? t('mNoSun') : `${shadowD.toFixed(1)}°  (${t('mSunAz')} ${sun.az.toFixed(1)}°)`;
     }
     compassD = relativeDeclination(state.lat, norm180((Number($('#mBearing').value) || 0) + (Number($('#mMagDecl').value) || 0) - 180));
     $('#mCompassOut').textContent = `${compassD.toFixed(1)}°`;
@@ -333,16 +339,11 @@ function download(name, text) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
-const tileOpts = () => ({ orient: state.orient, margin: state.printMargin });
-function currentTiles() {
-  if (state.paper === 'none') return [];
-  return tileSheets(faceSheet(dial, ctx()), state.paper, state.overlap, `${t('sheetFace')} ${PRESETS[state.place]?.name || ''}`, tileOpts());
-}
-// everything to print: the dial's pages, then the gnomon template and the info sheet (each normally one page)
-function allPages() {
+const tileOpts = () => ({ orient: state.orient, margin: state.printMargin, t });
+// everything to print: the dial's pages, then the gnomon template, the info sheet and the chart (each normally one page)
+function printJob() {
   const c = ctx(), nm = PRESETS[state.place]?.name || '';
-  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheet(dial, c), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')], [correctionSheet(dial, c), t('sheetCorr')]]
-    .flatMap(([sheet, label]) => tileSheets(sheet, state.paper, state.overlap, label, tileOpts()));
+  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheet(dial, c), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')], [correctionSheet(dial, c), t('sheetCorr')]];
 }
 // only the page grid is computed here; the SVGs are built when a button is clicked
 function updateTiles() {
@@ -361,10 +362,12 @@ function updateTiles() {
   }
   const save = tileSavings(W, H, lay); // a small trim that removes a whole row or column of pages
   if (save) msg += t('printTrim', save.mm.toFixed(1), t(save.axis === 'W' ? 'trimNarrow' : 'trimLow'), save.pages);
+  const lots = lay.pages > MAX_QUIET_PAGES;
+  if (lots) msg += t('printLots');
   info.textContent = msg;
   const btns = [];
-  for (let j = 0; j < lay.ny; j++) for (let i = 0; i < lay.nx; i++) btns.push(`<button type="button" data-tile="${btns.length}">${tileName('', i, j).slice(1)}</button>`);
-  box.innerHTML = `<span>${t('tilesFor')} (${btns.length}):</span>${btns.join('')}<button type="button" id="printTiles">${t('printTiles')}</button>`;
+  if (!lots) for (let j = 0; j < lay.ny; j++) for (let i = 0; i < lay.nx; i++) btns.push(`<button type="button" data-tile="${btns.length}">${tileName('', i, j).slice(1)}</button>`); // no row of hundreds of buttons
+  box.innerHTML = `${btns.length ? `<span>${t('tilesFor')} (${btns.length}):</span>${btns.join('')}` : ''}<button type="button" id="printTiles">${t('printTiles')}</button>`;
 }
 function bindDownloads() {
   $('#dlFace').addEventListener('click', () => download(`${base()}-face.svg`, svgDoc(faceSheet(dial, ctx()))));
@@ -375,22 +378,18 @@ function bindDownloads() {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.id === 'printTiles') {
-      const pages = allPages();
-      if (!pages.length) return;
+      const job = printJob(), n = printJobPages(job, state.paper, state.overlap, tileOpts());
+      if (!n) return;
+      if (n > MAX_QUIET_PAGES && !confirm(t('printConfirm', n))) return;
       const w = window.open('', '_blank');
       if (!w) return;
-      // each page asks for its own paper size (named pages), so a landscape dial and a portrait info sheet can share one job
-      const sizes = [...new Set(pages.map((p) => `${p.pw}x${p.ph}`))];
-      const css = `@page{size:${pages[0].pw}mm ${pages[0].ph}mm;margin:0}` +
-        sizes.map((z) => { const [pw, ph] = z.split('x'); return `@page p${z}{size:${pw}mm ${ph}mm;margin:0}`; }).join('') +
-        'html,body{margin:0}.pg{break-after:page;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pg svg{display:block}';
-      w.document.write(`<!doctype html><title>${esc(base())} pages</title><style>${css}</style>` +
-        pages.map((p) => `<div class="pg" style="page:p${p.pw}x${p.ph};width:${p.pw}mm;height:${p.ph}mm">${p.svg.replace(/^<\?xml[^>]*>\s*/, '')}</div>`).join('') + '<script>onload=()=>print()<\/script>');
+      w.document.write(printJobHtml(job, state.paper, state.overlap, tileOpts(), `${base()} ${t('tilesFor')}`));
       w.document.close();
       return;
     }
-    const tiles = currentTiles();
-    const tl = tiles[Number(b.dataset.tile)];
+    if (state.paper === 'none' || b.dataset.tile === undefined) return;
+    // only the page that was asked for is built (not every page of the sheet)
+    const [tl] = tileSheets(faceSheet(dial, ctx()), state.paper, state.overlap, `${t('sheetFace')} ${PRESETS[state.place]?.name || ''}`, { ...tileOpts(), only: Number(b.dataset.tile) });
     if (tl) download(`${base()}-${tl.name}.svg`, tl.svg);
   });
 }

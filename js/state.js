@@ -1,8 +1,8 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, BLADE_RATIO, absoluteDeclination, wallLimit } from './dial.js';
-import { DST_RULES } from './astro.js';
+import { computeDial, autoFit, BLADE_RATIO, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
+import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor } from './svg.js';
 
 export const PRESETS = {
@@ -54,7 +54,7 @@ export const DEFAULTS = {
 // [min, max] sanity bounds for numeric settings
 export const BOUNDS = {
   lat: [-66, 66], lon: [-180, 180], tz: [-12, 14], D: [-180, 180],
-  plateW: [50, 5000], plateH: [50, 5000], L: [2, 3000], fx: [-10000, 10000], fy: [-10000, 10000],
+  plateW: [50, 5000], plateH: [50, 5000], L: [L_MIN, L_MAX], fx: [-10000, 10000], fy: [-10000, 10000],
   grazing: [1, 40], overlap: [0, 60], printMargin: [0, 30],
 };
 
@@ -121,14 +121,21 @@ export function buildDial(s, t) {
   const { fs } = sizesFor(s.material, plate);
   const bottomReserve = s.xInfo || s.motto ? fs * 1.4 : 0;
   let { L, fx, fy } = s;
+  let fit = null;
   if (s.auto) {
     // extra room around the shadow region for the hour labels
-    const fit = autoFit(s.lat, D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
+    fit = autoFit(s.lat, D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
       s.includeRoot && s.gBlade ? BLADE_RATIO : 0);
     L = r2(fit.L, 1); fx = r2(fit.fx, 0.5); fy = r2(fit.fy, 0.5);
   }
-  return computeDial({
+  const dial = computeDial({
     lat: s.lat, lon: s.lon, tz: s.tz, D, L,
     plate: { ...plate, fx, fy }, fontSize: fs, opts: s, t, grazing: s.grazing, bottomReserve,
   });
+  // things the user should know about the automatic fit, and about a time zone that does not fit the place
+  if (fit?.relaxedTo != null) dial.warnings.push(['fitRelaxed', s.grazing, fit.relaxedTo]);
+  if (fit?.clamped && !fit.empty) dial.warnings.push(['fitClamped', L]);
+  const off = Math.abs(lonCorrection(s.lon, s.tz)) / 60; // hours between the place and the middle of its time zone
+  if (off > 190 / 60) dial.warnings.push(['zoneFar', off.toFixed(1)]); // a few places (far west of China) reach 3.1 h; more is probably a wrong zone
+  return dial;
 }

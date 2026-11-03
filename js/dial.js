@@ -195,16 +195,29 @@ export function coreBBox(lat, D, grazing, includeRoot, extraTop = 0) {
   return { x0, x1, y0, y1, n };
 }
 
-/** Choose nodus length L and foot position so the core region fits the plate. */
+/** Bounds of the nodus distance L, mm: the manual setting is held to them, and so is the automatic one. */
+export const L_MIN = 2, L_MAX = 3000;
+
+/**
+ * Choose nodus length L and foot position so the core region fits the plate.
+ * If the grazing filter leaves no sun at all (a wall that only ever sees grazing sun, such as one facing
+ * due north or south near the equator with a big grazing setting), it is relaxed step by step: dividing the
+ * plate by an empty region used to give an L of metres. `relaxedTo` is the grazing limit actually used when
+ * that happened (else null); `clamped` says L was held to L_MIN..L_MAX; `empty` means there is no sun even at
+ * 1° (a wall the sun never reaches), where a modest size is chosen.
+ */
 export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0, extraTop = 0) {
-  const b = coreBBox(lat, D, grazing, includeRoot, extraTop);
+  let g = grazing, b = coreBBox(lat, D, g, includeRoot, extraTop);
+  while (b.n === 0 && g > 1) { g = Math.max(1, g - 3); b = coreBBox(lat, D, g, includeRoot, extraTop); }
+  const empty = b.n === 0;
   const bw = Math.max(b.x1 - b.x0, 0.05), bh = Math.max(b.y1 - b.y0, 0.05);
   const m = plate.margin;
   const aw = plate.w - 2 * m, ah = plate.h - 2 * m - bottomReserve;
-  const L = Math.max(1, Math.min(aw / bw, ah / bh));
+  const wanted = empty ? Math.min(aw, ah) / 6 : Math.min(aw / bw, ah / bh);
+  const L = Math.min(L_MAX, Math.max(L_MIN, wanted));
   const fx = m + -b.x0 * L + (aw - bw * L) / 2;
   const fy = m + b.y1 * L + (ah - bh * L) / 2;
-  return { L, fx, fy, empty: b.n === 0 };
+  return { L, fx, fy, empty, relaxedTo: g < grazing && !empty ? g : null, clamped: L !== wanted };
 }
 
 /** Hours of sun on the wall, averaged per day over the year, and daylight hours. */

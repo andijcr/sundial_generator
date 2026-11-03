@@ -4,7 +4,9 @@ import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
-import { fmtHM, yearCorrections, lonCorrection } from '../js/astro.js';
+import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
+import { printJobHtml, printJobPages, MAX_QUIET_PAGES } from '../js/svg.js';
+import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
@@ -594,7 +596,7 @@ test('chart: summer-time bands match the spans, extremes are labelled with value
 
 test('chart: the marker sits on the curves at the date, and stays inside the plot', () => {
   const { data, g } = chartFor();
-  const m = correctionMarker(g, 100, data[100].solar, data[100].zone);
+  const m = correctionMarker(g, 100.5, data[100].solar, data[100].zone); // local noon of day 100: where that day's point of the curve is
   assert.match(m, new RegExp(`cx="${g.X(100).toFixed(2).replace(/\.?0+$/, '')}`));
   assert.ok(m.includes(`cy="${(Math.round(g.Y(data[100].solar) * 100) / 100)}"`) && m.includes(`cy="${(Math.round(g.Y(data[100].zone) * 100) / 100)}"`));
   const off = correctionMarker(g, 10, 500, -500); // a value far off the chart is pinned to its edge
@@ -625,4 +627,64 @@ test('chart: signed text, the table and the chart agree, and the sheet says the 
   assert.ok(info.includes(fmtMin(nov1.solar)) && info.includes(fmtMin(nov1.zone)) && info.includes(fmtMin(nov1.eot)));
   // the page's chart uses the page's theme colours, the print chart fixed ones
   assert.ok(graphCss(false, true).includes('var(--ink)') && !graphCss(false, false).includes('var('));
+});
+
+test('auto-fit stays within [L_MIN, L_MAX] and reports when it had to relax or clamp', () => {
+  for (const lat of [-60, -10, 0, 5, 30, 41.9, 66]) for (const D of [-90, -45, 0, 45, 90, 135, 180]) for (const plate of [{ w: 50, h: 50 }, { w: 600, h: 450 }, { w: 5000, h: 5000 }]) {
+    const f = autoFit(lat, D, { ...plate, margin: 4 }, 12, true);
+    assert.ok(f.L >= L_MIN && f.L <= L_MAX && Number.isFinite(f.fx) && Number.isFinite(f.fy), `${lat} ${D}`);
+  }
+  const big = autoFit(41.9, 0, { w: 5000, h: 5000, margin: 4 }, 12, false);
+  assert.equal(typeof big.clamped, 'boolean');
+});
+
+test('buildDial warns about a time zone far from the place', () => {
+  const t = makeT('en');
+  const far = buildDial(sanitize({ ...DEFAULTS, lon: 87, tz: 1 }).s, t);
+  assert.ok(far.warnings.some((w) => w[0] === 'zoneFar'));
+  assert.ok(!buildDial(sanitize({}).s, t).warnings.some((w) => w[0] === 'zoneFar'));
+});
+
+test('utcMs treats years 0-99 as themselves; correctionAt agrees with yearCorrections', () => {
+  assert.equal(new Date(utcMs(50, 0, 1)).getUTCFullYear(), 50);
+  assert.equal(new Date(utcMs(2027, 0, 1, 12)).getUTCFullYear(), 2027);
+  const c = yearCorrections(12.5, 1, 'EU')[10];
+  assert.deepEqual({ solar: c.solar, zone: c.zone }, correctionAt(12.5, 1, c.eot));
+});
+
+test('print job: one document, shared content, pages sized to their sheets; tileSheets only builds one tile', () => {
+  const { s } = sanitize({ ...DEFAULTS, plateW: 1000, plateH: 700 });
+  const t = makeT('en'), ctx = { s, t, place: 'Test', dateStr: '2026-01-01' };
+  const dial = buildDial(s, t);
+  const sheets = [[faceSheet(dial, ctx), 'face'], [infoSheet(dial, ctx), 'info']];
+  const n = printJobPages(sheets, 'A4', 10, { orient: 'auto', margin: 8 });
+  assert.ok(n > 2 && n <= MAX_QUIET_PAGES);
+  const html = printJobHtml(sheets, 'A4', 10, { orient: 'auto', margin: 8 }, 'T <x>');
+  assert.equal((html.match(/class="pg"/g) || []).length, n);
+  assert.ok(html.includes('&lt;x&gt;') && !html.includes('<x>'));
+  assert.ok(html.includes('<use'), 'pages refer to shared content');
+  assert.ok(!/NaN|undefined/.test(html));
+  assert.equal(printJobHtml(sheets, 'none', 10, {}, 'T'), '');
+  assert.equal(tileSheets(sheets[0][0], 'A4', 10, 'x', { only: 1 }).length, 1);
+});
+
+test('sheets fit one A4 page with a 12 mm printer margin, in both languages', () => {
+  for (const lang of ['en', 'it']) for (const plate of [[200, 150], [600, 450]]) {
+    const { s } = sanitize({ ...DEFAULTS, lang, plateW: plate[0], plateH: plate[1], gBlade: true });
+    const t = makeT(lang), ctx = { s, t, place: 'Test', dateStr: '2026-01-01' };
+    const dial = buildDial(s, t);
+    for (const sh of [infoSheet(dial, ctx), correctionSheet(dial, ctx)]) {
+      const lay = tileLayout(sh.W, sh.H, 'A4', 10, { orient: 'auto', margin: 12 });
+      assert.equal(lay.pages, 1, `${sh.name} ${lang} ${plate}`);
+    }
+  }
+});
+
+test('graph CSS only comes with the chart sheet; the chart sheet is black and white clean', () => {
+  const { s } = sanitize({ ...DEFAULTS, ink: 'bw' });
+  const t = makeT('en'), ctx = { s, t, place: 'Test', dateStr: '2026-01-01' };
+  const dial = buildDial(s, t);
+  const cs = correctionSheet(dial, ctx);
+  assert.ok(cs.css.includes(graphCss(true).slice(0, 20)));
+  assert.ok(!infoSheet(dial, ctx).css.includes(graphCss(true).slice(0, 20)));
 });
