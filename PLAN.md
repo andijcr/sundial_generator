@@ -124,6 +124,14 @@ A *vertical edge* cannot be a polar style (it is parallel to the Earth's axis
 only at the poles); its shadow gives azimuth, not time. Open idea: let the user
 choose the blade height, and add a pinhole-plate nodus for a sharper spot.
 
+### When the sun reaches the wall
+`sunlightGrid` (`dial.js`) evaluates `sunState` (night / behind the wall / hidden by the horizon profile / grazing /
+lit) every 2 days and 10 minutes of standard time (hour angle from the clock: solar = zone − lonCorrection + EoT).
+`sunChart` (`svg.js`) draws it as run-length rectangles, hatched where hidden, with a summer-time strip; the page adds a
+marker and a hover readout. The horizon profile (`horizon`, text) is parsed by `parseHorizon` into numbers only and
+stored in canonical form; `horizonAlt` interpolates it around the circle. `sunStats` (and so the warnings) and the
+simulated shadow respect it; the dial's lines and the auto-fit do not (an obstacle can move).
+
 ### SVG export (print plans)
 Laser files (`material: 'laser'`): `laserLayers` (`svg.js`) sorts a sheet's flat markup into Inkscape layers by class
 (`laserLayerOf`: plate/cut → Cut #f00, dial lines/marks/folds → Score #00f, plate text → Engrave #000, the rest → Notes

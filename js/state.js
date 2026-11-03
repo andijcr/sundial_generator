@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
+import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor, faceSheetSize, gnomonSheet, tileLayout } from './svg.js';
 
@@ -40,7 +40,7 @@ export function wallPresetsFor(lat) {
 export const DEFAULTS = {
   lang: 'en',
   place: 'rome', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU',
-  D: 45,
+  D: 45, horizon: '',
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
   gPolar: true, gRod: true, rodX: 1, gBlade: false, bladeR: 1,
   hSolar: true, hZone: false, hHalf: true, hQuarter: false, hRoman: false, hExtend: true, hDstLabels: false,
@@ -95,6 +95,7 @@ export function sanitize(input) {
   if (!Object.hasOwn(PRESETS, s.place)) s.place = 'custom';
   if (!['en', 'it'].includes(s.lang)) s.lang = 'en';
   s.motto = s.motto.slice(0, 80);
+  s.horizon = formatHorizon(parseHorizon(s.horizon)); // only numbers survive
   // a dial needs at least one way of telling the time
   if (!s.gPolar && !s.gRod && !s.gBlade) s.gRod = true;
   // dedupe identical warnings
@@ -134,7 +135,7 @@ export function buildDial(s, t) {
   }
   const dial = computeDial({
     lat: s.lat, lon: s.lon, tz: s.tz, D, L,
-    plate: { ...plate, fx, fy }, fontSize: fs, opts: s, t, grazing: s.grazing, bottomReserve,
+    plate: { ...plate, fx, fy }, fontSize: fs, opts: s, t, grazing: s.grazing, bottomReserve, horizon: parseHorizon(s.horizon),
   });
   // things the user should know about the automatic fit, and about a time zone that does not fit the place
   if (fit?.relaxedTo != null) dial.warnings.push(['fitRelaxed', s.grazing, fit.relaxedTo]);

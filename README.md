@@ -6,6 +6,7 @@ Design a **vertical declining wall sundial** for any latitude and wall orientati
 
 - interactive simulation of the shadow, live or at any chosen moment, with day/year animation and a 3D view;
 - explanation of the mathematics, with the numbers for your settings;
+- a chart of **when the sun reaches the wall** through the year (by date and clock time), with an optional **horizon profile** for the buildings, trees or hills that hide it;
 - a **time-correction chart** that shows what to add to the dial reading through the year, on the page (with a marker for the date being simulated) and as a printable sheet;
 - downloadable, dimensioned **SVG plans** in real millimetres: dial face, gnomon template, a mounting/time-correction sheet and the correction chart, optionally split into A4/A3/A2 pages with registration marks.
 
@@ -40,6 +41,8 @@ Every design choice is a checkbox, so you can compare options on the page:
 - *Print all* builds one print document whose pages share the sheet content (so large plates stay light) and asks for confirmation above 60 pages. It sends the dial's pages, the gnomon template, the info sheet and the correction chart to the printer in one job; the last three are sized to take one A4 page each, and each page asks for its own paper orientation.
 
 **Time-correction chart.** A dial that reads solar time needs a correction to show the clock time: the longitude offset from the time-zone meridian plus the equation of time, which swings between about −14 and +16 minutes through the year. The chart plots it against the date, one curve for the solar-time lines and one for the zone-time lines (which already include the longitude). Summer time is not folded into the curves, where a 60-minute step would flatten them; the months it is in force are marked, with "add 60 more minutes". The extremes are labelled with value and date. On the page a marker follows the simulated date and the line above the chart says what to add today. The table on the info sheet and the chart come from the same data, so they always agree.
+
+**When the sun reaches the wall.** A chart on the page shows, for every day of the year and every ten minutes of (standard) clock time, whether the sun is on the wall, grazing it (within the auto-fit's grazing angle, where shadows get long and faint), behind it, or hidden by an obstacle, with the average, longest and shortest hours of sun per day. Hover over it for the date, time and the sun's height then. Obstacles go in the *Horizon profile* as compass azimuth:altitude pairs ("100:25, 180:12, 250:30"), interpolated around the horizon; they also hide the shadow in the simulation and count in the sun statistics and warnings. It answers "is this wall worth it?" before anything is cut.
 
 A "measure my wall" helper works out the wall declination from a shadow at a known time, or from a compass bearing.
 

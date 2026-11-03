@@ -5,7 +5,7 @@
 // foot F (the point of the wall right behind the nodus), x to the right as you
 // face the wall, y up. The nodus N sits at distance L in front of F.
 
-import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180 } from './astro.js';
+import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, lonCorrection } from './astro.js';
 
 export const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -221,8 +221,77 @@ export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0, 
   return { L, fx, fy, empty, relaxedTo: g < grazing && !empty ? g : null, clamped: L !== wanted };
 }
 
-/** Hours of sun on the wall, averaged per day over the year, and daylight hours. */
-export function sunStats(lat, D) {
+// ---- Horizon profile and when the sun reaches the wall ----
+
+/** At most this many points in a horizon profile. */
+export const HORIZON_MAX = 36;
+
+/**
+ * Horizon profile from text: "az:alt" pairs separated by commas or semicolons, compass azimuth (0 = north, 90 = east)
+ * and the altitude of the obstacles' top, degrees. Tokens that are not such a pair are ignored, azimuths are wrapped
+ * to 0..360, altitudes held to 0..89, the points sorted by azimuth (a repeated azimuth keeps its last value).
+ * Returns [[az, alt], ...]: what is stored and drawn never contains anything but numbers.
+ */
+export function parseHorizon(str) {
+  const byAz = new Map();
+  for (const tok of String(str ?? '').split(/[,;]+/)) {
+    const m = tok.trim().match(/^(-?\d+(?:\.\d+)?)\s*[:=/]\s*(-?\d+(?:\.\d+)?)$/);
+    if (!m) continue;
+    const az = Math.round(norm360(+m[1]) * 10) / 10 % 360, alt = Math.round(Math.min(89, Math.max(0, +m[2])) * 10) / 10;
+    byAz.delete(az);
+    byAz.set(az, alt);
+    if (byAz.size > HORIZON_MAX) byAz.delete(byAz.keys().next().value);
+  }
+  return [...byAz].sort((a, b) => a[0] - b[0]);
+}
+/** The canonical text of a horizon profile (what the URL stores). */
+export const formatHorizon = (pts) => pts.map(([a, h]) => `${a}:${h}`).join(', ');
+
+/** Altitude of the horizon profile at compass azimuth az: linear between neighbouring points, around the circle. One point is the whole horizon; none is 0. */
+export function horizonAlt(pts, az) {
+  if (!pts?.length) return 0;
+  if (pts.length === 1) return pts[0][1];
+  const z = norm360(az);
+  const j = pts.findIndex((p) => p[0] > z), b = pts[j === -1 ? 0 : j], a = pts[j <= 0 ? pts.length - 1 : j - 1];
+  const span = norm360(b[0] - a[0]) || 360;
+  return a[1] + (b[1] - a[1]) * (norm360(z - a[0]) / span);
+}
+
+/** The sun's state as seen from the wall. graze: on the wall, but within the auto-fit's grazing angle of its plane (long, faint shadows). */
+export const SUN = { night: 0, behind: 1, hidden: 2, graze: 3, lit: 4 };
+export function sunState(s, fr, hz = [], grazing = 0) {
+  if (s[2] <= 0) return SUN.night;
+  const sn = dot(s, fr.n);
+  if (sn <= 0) return SUN.behind;
+  if (hz.length) { const { alt, az } = altAz(s); if (alt <= horizonAlt(hz, az)) return SUN.hidden; }
+  return sn < Math.sin(grazing * DEG) ? SUN.graze : SUN.lit;
+}
+
+/**
+ * When the sun reaches the wall through the (reference) year, against standard (zone) clock time: one column every
+ * `stepDays` days, one cell every `stepMin` minutes, each a SUN state. Hour angle from the clock:
+ * solar time = zone time − lonCorrection + EoT. litH: hours of sun on the wall that day (grazing included).
+ */
+export function sunlightGrid(lat, lon, tz, D, hz = [], grazing = 0, stepDays = 2, stepMin = 10) {
+  const fr = wallFrame(D), Y = yearTable(), lc = lonCorrection(lon, tz), n = Math.round(1440 / stepMin);
+  const cols = [];
+  for (let i = 0; i < Y.length; i += stepDays) {
+    const d = Y[i], codes = new Uint8Array(n);
+    let lit = 0;
+    for (let k = 0; k < n; k++) {
+      const T = (k + 0.5) * stepMin, H = (T - lc + d.eot - 720) / 4;
+      codes[k] = sunState(sunVector(d.decl, H, lat), fr, hz, grazing);
+      if (codes[k] >= SUN.graze) lit++;
+    }
+    cols.push({ i, codes, litH: lit * stepMin / 60 });
+  }
+  const avg = cols.reduce((a, c) => a + c.litH, 0) / cols.length;
+  const max = cols.reduce((a, c) => (c.litH > a.litH ? c : a)), min = cols.reduce((a, c) => (c.litH < a.litH ? c : a));
+  return { stepDays, stepMin, n, cols, avg, max, min };
+}
+
+/** Hours of sun on the wall (above the horizon profile hz, if any), averaged per day over the year, and daylight hours. */
+export function sunStats(lat, D, hz = []) {
   const fr = wallFrame(D);
   const Y = yearTable();
   let lit = 0, day = 0, days = 0;
@@ -230,7 +299,7 @@ export function sunStats(lat, D) {
     days++;
     for (let H = -180; H < 180; H += 2.5) {
       const s = sunVector(Y[i].decl, H, lat);
-      if (s[2] > 0) { day++; if (dot(s, fr.n) > 0) lit++; }
+      if (s[2] > 0) { day++; if (sunState(s, fr, hz) >= SUN.graze) lit++; }
     }
   }
   const k = 10 / 60 / days; // 2.5° = 10 minutes
@@ -576,7 +645,7 @@ export function computeDial(cfg) {
 
   // ---------- Warnings & stats ----------
   const warnings = [];
-  const stats = sunStats(lat, D);
+  const stats = sunStats(lat, D, cfg.horizon || []);
   if (Math.abs(lat) < 10) warnings.push(['nearEquator']);
   // these two only concern the triangular polar style
   if (o.gPolar && !root) warnings.push(['polarParallel']);
@@ -588,5 +657,5 @@ export function computeDial(cfg) {
   if (b.n && (b.x0 * L < clip.x0 - 1 || b.x1 * L > clip.x1 + 1 || b.y0 * L < clip.y0 - 1 || b.y1 * L > clip.y1 + 1)) warnings.push(['clipped']);
   if (root && (root[0] < clip.x0 - m || root[0] > clip.x1 + m || root[1] < clip.y0 - m || root[1] > clip.y1 + m) && o.gPolar) warnings.push(['rootOutside']);
 
-  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs, bladeH: bladeHeight(L, o.bladeR ?? BLADE_RATIO) };
+  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs, bladeH: bladeHeight(L, o.bladeR ?? BLADE_RATIO), horizon: cfg.horizon || [] };
 }

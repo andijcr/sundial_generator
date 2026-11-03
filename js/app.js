@@ -1,8 +1,8 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
-import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR } from './astro.js';
-import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
-import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
+import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR, sunVector, altAz, RAD } from './astro.js';
+import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
+import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -138,7 +138,58 @@ function update() {
   saveHash();
   refreshMeasure();
   renderCorrection();
+  renderSun();
   renderTime();
+}
+
+// ---------------- when the sun reaches the wall ----------------
+let sunView = null; // { grid, chart } of the chart on the page, for the marker and the hover readout
+let sunKey = ''; // the marker's current position (redrawn only when it moves)
+function renderSun() {
+  sunKey = '';
+  const D = absoluteDeclination(state.lat, state.D);
+  const grid = sunlightGrid(state.lat, state.lon, state.tz, D, dial.horizon, state.grazing);
+  const chart = sunChart(grid, { x: 0, y: 0, w: 262, h: 120, t, dst: yearCorrections(state.lon, state.tz, state.dst), grazing: state.grazing });
+  sunView = { grid, chart, D };
+  const tip = $('#sunTip');
+  $('#sunGraph').innerHTML = `<svg viewBox="0 0 262 120" role="img" aria-label="${esc(t('sunTitle'))}"><style>${sunChartCss()}</style>${chart.markup}<g id="sc-now"></g></svg>`;
+  $('#sunGraph').append(tip);
+  const day = (c) => { const d = yearTable()[c.i]; return `${d.dom} ${t('monthsShort')[d.m]}`; };
+  const open = dial.horizon.length ? t('sunSummaryHz', sunlightGrid(state.lat, state.lon, state.tz, D, [], state.grazing).avg.toFixed(1)) : '';
+  $('#sunNow').textContent = t('sunSummary', grid.avg.toFixed(1), open, grid.max.litH.toFixed(1), day(grid.max), grid.min.litH.toFixed(1), day(grid.min));
+}
+function updateSunMarker(c) {
+  if (!sunView) return;
+  const days = Math.min(364.99, Math.round((Date.UTC(REF_YEAR, c.mo, c.d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000) + 0.5);
+  const min = c.h * 60 + c.mi - (c.dst ? 60 : 0); // the chart is in standard time
+  const key = `${days}|${min}`;
+  if (key === sunKey) return;
+  sunKey = key;
+  const g = $('#sc-now');
+  if (g) g.innerHTML = sunChartMarker(sunView.chart, days, (min + 1440) % 1440);
+}
+// hover: what the cell under the pointer means, and the sun's position then
+function bindSunHover() {
+  const box = $('#sunGraph'), tip = $('#sunTip');
+  box.addEventListener('pointermove', (e) => {
+    const svg = box.querySelector('svg');
+    if (!svg || !sunView) return;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    const { px, py, pw, ph } = sunView.chart.box, { grid } = sunView;
+    if (p.x < px || p.x > px + pw || p.y < py || p.y > py + ph) { tip.hidden = true; return; }
+    const col = grid.cols[Math.min(grid.cols.length - 1, Math.floor(((p.x - px) / pw) * 365 / grid.stepDays))];
+    const min = sunView.chart.t0 + ((p.y - py) / ph) * (sunView.chart.t1 - sunView.chart.t0), k = Math.min(grid.n - 1, Math.floor(min / grid.stepMin));
+    const d = yearTable()[col.i], code = col.codes[k];
+    const s = sunVector(d.decl, ((k + 0.5) * grid.stepMin - lonCorrection(state.lon, state.tz) + d.eot - 720) / 4, state.lat);
+    const name = { [SUN.night]: t('sunNight'), [SUN.behind]: t('sunBehind'), [SUN.hidden]: t('sunHidden'), [SUN.graze]: t('sunGraze', state.grazing), [SUN.lit]: t('sunLit') }[code];
+    const extra = code === SUN.night ? '' : ` · ${t('sunTipSun', altAz(s).alt.toFixed(0), (Math.asin(Math.max(-1, Math.min(1, dot(s, dial.frame.n)))) * RAD).toFixed(0))}`;
+    tip.textContent = t('sunTip', `${d.dom} ${t('monthsShort')[d.m]}`, fmtHM(k * grid.stepMin), name) + extra;
+    tip.hidden = false;
+    const r = box.getBoundingClientRect(), tw = tip.offsetWidth; // centred on the pointer, but kept inside the chart
+    tip.style.left = `${Math.min(r.width - tw, Math.max(0, e.clientX - r.left - tw / 2))}px`;
+    tip.style.top = `${e.clientY - r.top}px`;
+  });
+  box.addEventListener('pointerleave', () => { tip.hidden = true; });
 }
 
 // ---------------- correction chart ----------------
@@ -198,7 +249,8 @@ function renderTime() {
   if (time.mode === 'live') time.ms = Date.now();
   const c = syncTimeInputs();
   const sun = sunAt(time.ms, state.lat, state.lon);
-  const S = shadowPoint(sun.vec, dial.L, dial.frame);
+  const hidden = sunState(sun.vec, dial.frame, dial.horizon) === SUN.hidden; // behind an obstacle: no shadow on the dial
+  const S = hidden ? null : shadowPoint(sun.vec, dial.L, dial.frame);
   if (S && time.trailOn && time.anim !== 'off') {
     time.trail.push(S);
     if (time.trail.length > 4000) time.trail.shift();
@@ -213,8 +265,9 @@ function renderTime() {
   }
   // readout
   updateCorrectionMarker(sun, c);
+  updateSunMarker(c);
   const lit = sun.alt > 0 && S;
-  const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : t('rBehind');
+  const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : hidden ? t('rHidden') : t('rBehind');
   const zoneRead = sun.solarMin + lonCorrection(state.lon, state.tz);
   $('#readout').innerHTML = [
     `${t('rClock')}: <b>${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)} ${pad2(c.h)}:${pad2(c.mi)}</b> (UTC${c.off >= 0 ? '+' : ''}${c.off}${c.dst ? ' DST' : ''})`,
@@ -431,6 +484,7 @@ function init() {
   bindTime();
   bindMeasure();
   bindDownloads();
+  bindSunHover();
   update();
   requestAnimationFrame(tick);
 }

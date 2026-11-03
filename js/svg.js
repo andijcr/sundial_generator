@@ -670,6 +670,89 @@ export function correctionSheet(dial, ctx) {
   return { W, H, inner, css: graphCss(bw), name: 'correction', bw }; // the chart's own CSS: no other sheet needs it
 }
 
+// ---------------- When the sun reaches the wall ----------------
+
+/** CSS of the sun chart on the page: theme colours from style.css (--sun-*), so light and dark each get their own steps. */
+export function sunChartCss() {
+  return `.sc-t{font-family:Helvetica,Arial,sans-serif;font-size:3.2px;fill:var(--ink)}.sc-axis{stroke:var(--muted);stroke-width:0.3;fill:none}` +
+    `.sc-grid{stroke:var(--line);stroke-width:0.15;fill:none}.sc-4{fill:var(--sun-lit)}.sc-3{fill:var(--sun-graze)}.sc-1{fill:var(--sun-behind)}` +
+    `.sc-2{fill:var(--sun-hidden)}.sc-hatch{stroke:var(--sun-hatch);stroke-width:0.35}.sc-dst{fill:var(--muted)}.sc-now{stroke:var(--accent);stroke-width:0.45;fill:none}`;
+}
+
+/**
+ * Chart of when the sun reaches the wall: date across (one column per grid column), standard clock time down, each cell
+ * coloured by its SUN state (night left blank; the hidden state also hatched, so it does not rely on colour). Only the
+ * hours in which the sun is ever up are drawn. dst: per-day summer-time flags (yearCorrections), drawn as a strip on top.
+ * Returns { markup, X(days), Y(minutes), box, t0, t1 }.
+ */
+export function sunChart(grid, { x = 0, y = 0, w = 262, h = 120, t, dst = [], grazing = 0 }) {
+  const { cols, n, stepMin, stepDays } = grid, months = t('monthsShort');
+  // legend: a swatch and a label for each state that occurs (and the summer-time strip), wrapped into rows
+  const seen = new Set(cols.flatMap((c) => [...new Set(c.codes)]));
+  const runs = [];
+  dst.forEach((d, i) => { if (d.dst) { const r = runs[runs.length - 1]; if (r && r[1] === i - 1) r[1] = i; else runs.push([i, i]); } });
+  const items = [[4, t('sunLit')], [3, t('sunGraze', grazing)], [1, t('sunBehind')], [2, t('sunHidden')]].filter(([v]) => seen.has(v));
+  if (runs.length) items.push(['dst', t('sunDst')]);
+  const legend = [];
+  let lx = x + 12, row = 0;
+  for (const [v, label] of items) {
+    const iw = 6.5 + label.length * 1.6 + 4; // swatch, label (estimated at 1.6 mm a character), gap
+    if (lx + iw > x + w && lx > x + 12) { lx = x + 12; row++; }
+    legend.push([v, label, lx, y + row * 4.8]);
+    lx += iw;
+  }
+  const px = x + 12, py = y + 12 + row * 4.8, pw = w - 12 - 3, ph = h - (py - y) - 7;
+  let k0 = n, k1 = 0;
+  for (const c of cols) for (let k = 0; k < n; k++) if (c.codes[k]) { k0 = Math.min(k0, k); k1 = Math.max(k1, k + 1); }
+  if (k1 <= k0) { k0 = 0; k1 = n; }
+  const t0 = Math.floor(k0 * stepMin / 60) * 60, t1 = Math.ceil(k1 * stepMin / 60) * 60; // whole hours, minutes
+  const Xt = (days) => px + (days / 365) * pw, Y = (min) => py + ((min - t0) / (t1 - t0)) * ph;
+  let g = '<defs><pattern id="sunHatch" width="1.6" height="1.6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path class="sc-hatch" d="M0 0V1.6"/></pattern></defs>';
+  // the cells, merged into runs down each column
+  g += '<g shape-rendering="crispEdges">'; // no hairline seams between the columns
+  for (const c of cols) {
+    const xa = Xt(c.i), xb = Xt(Math.min(365, c.i + stepDays));
+    for (let k = 0; k < n;) {
+      const v = c.codes[k];
+      let e = k + 1;
+      while (e < n && c.codes[e] === v) e++;
+      if (v) {
+        const r = `x="${f(xa)}" y="${f(Y(k * stepMin))}" width="${f(xb - xa + 0.05)}" height="${f(Y(e * stepMin) - Y(k * stepMin))}"`;
+        g += `<rect class="sc-${v}" ${r}/>`;
+        if (v === 2) g += `<rect fill="url(#sunHatch)" ${r}/>`;
+      }
+      k = e;
+    }
+  }
+  g += '</g>';
+  // hours down the left (every 2 h), months along the bottom
+  for (let m = t0; m <= t1; m += 60) {
+    if ((m / 60) % 2) continue;
+    g += `<path class="sc-grid" d="M${f(px)} ${f(Y(m))}H${f(px + pw)}"/><text class="sc-t" x="${f(px - 1.5)}" y="${f(Y(m) + 1.1)}" style="text-anchor:end">${fmtHM(m)}</text>`;
+  }
+  const first = (mo) => Math.round((Date.UTC(REF_YEAR, mo, 1) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+  for (let mo = 0; mo < 12; mo++) {
+    const a = first(mo), b = mo < 11 ? first(mo + 1) : 365;
+    if (mo) g += `<path class="sc-grid" d="M${f(Xt(a))} ${f(py)}V${f(py + ph)}"/>`;
+    g += `<text class="sc-t" x="${f(Xt((a + b) / 2))}" y="${f(py + ph + 4.5)}" style="text-anchor:middle">${esc(months[mo])}</text>`;
+  }
+  g += `<path class="sc-axis" d="M${f(px)} ${f(py)}V${f(py + ph)}H${f(px + pw)}"/>`;
+  // summer time: a thin strip above the plot
+  for (const [a, b] of runs) g += `<rect class="sc-dst" x="${f(Xt(a))}" y="${f(py - 2.2)}" width="${f(Xt(b + 1) - Xt(a))}" height="1.2"/>`;
+  for (const [v, label, lx, ly] of legend) {
+    g += v === 'dst' ? `<rect class="sc-dst" x="${f(lx)}" y="${f(ly + 2.2)}" width="5" height="1.2"/>`
+      : `<rect class="sc-${v}" x="${f(lx)}" y="${f(ly + 1)}" width="5" height="3.2"/>${v === 2 ? `<rect fill="url(#sunHatch)" x="${f(lx)}" y="${f(ly + 1)}" width="5" height="3.2"/>` : ''}`;
+    g += `<text class="sc-t" x="${f(lx + 6.5)}" y="${f(ly + 3.7)}">${esc(label)}</text>`;
+  }
+  return { markup: `<g>${g}</g>`, X: Xt, Y, box: { px, py, pw, ph }, t0, t1 };
+}
+
+/** The simulated moment on the sun chart: days since the start of the year, standard-time minutes after midnight. */
+export function sunChartMarker(chart, days, min) {
+  const { px, py, pw, ph } = chart.box, cx = chart.X(Math.min(365, Math.max(0, days))), m = Math.min(chart.t1, Math.max(chart.t0, min)), cy = chart.Y(m);
+  return `<path class="sc-now" d="M${f(cx)} ${f(py)}V${f(py + ph)}M${f(px)} ${f(cy)}H${f(px + pw)}"/><circle class="sc-now" cx="${f(cx)}" cy="${f(cy)}" r="1.4"/>`;
+}
+
 // ---------------- Tiling ----------------
 
 export const PAPERS = { A4: [210, 297], A3: [297, 420], A2: [420, 594] };

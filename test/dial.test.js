@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
-import { labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
+import { parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
-import { printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
+import { sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -128,7 +128,7 @@ test('sheets render for many configurations without NaN', () => {
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
     { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
-    { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
+    { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
     const { s } = sanitize({ ...DEFAULTS, ...c });
@@ -910,6 +910,78 @@ test('face sheet: the title block and the scale bar never overlap; the bar goes 
         assert.ok(right <= sh.W + 1, `${lang} ${plateW}: a title line leaves the sheet`);
       }
       assert.ok(bx >= 0 && bx + 100 <= sh.W, `${lang} ${plateW}: the bar is on the sheet`);
+    }
+  }
+});
+
+test('horizon profile: parsed to numbers only, wrapped, clamped, sorted, deduplicated, bounded; survives the URL', () => {
+  // 450 wraps to 90 and a later 90 replaces it; −30 is 330; altitudes held to 0..89; non-pairs ignored
+  assert.deepEqual(parseHorizon('180:10, 90:20; 450:5, -30:3, x:1, 200:-4, 210:120, <b>:3, 90:22'), [[90, 22], [180, 10], [200, 0], [210, 89], [330, 3]]);
+  assert.deepEqual(parseHorizon(''), []);
+  assert.deepEqual(parseHorizon('359.96:5'), [[0, 5]], 'wraps to 0, not 360');
+  assert.equal(parseHorizon(Array.from({ length: 50 }, (_, i) => `${i * 7}:1`).join(',')).length, HORIZON_MAX);
+  const { s } = sanitize({ ...DEFAULTS, horizon: ' 250 : 30 ;100:25,"><script>,180:12' });
+  assert.equal(s.horizon, '100:25, 180:12, 250:30', 'canonical text, nothing else survives');
+  const back = sanitize(Object.fromEntries(new URLSearchParams(serializeState(s)))).s;
+  assert.equal(back.horizon, s.horizon);
+  assert.equal(sanitize({ ...DEFAULTS }).s.horizon, '', 'open horizon by default');
+});
+
+test('horizon profile: linear between points, around the circle; one point is the whole horizon', () => {
+  const hz = parseHorizon('90:10, 180:30, 300:0');
+  near(horizonAlt(hz, 135), 20, 1e-9);
+  near(horizonAlt(hz, 240), 15, 1e-9);
+  near(horizonAlt(hz, 30), 6, 1e-9, 'across north: 300 → 90 spans 150°, and 30 is 90° in: 0 + 10 × 90/150');
+  near(horizonAlt(hz, 390), horizonAlt(hz, 30), 1e-9);
+  assert.equal(horizonAlt(parseHorizon('200:12'), 17), 12);
+  assert.equal(horizonAlt([], 17), 0);
+});
+
+test('sun state: night, behind the wall, hidden, grazing, lit', () => {
+  const fr = wallFrame(0), lat = 41.9; // south wall
+  assert.equal(sunState(sunVector(0, 180, lat), fr), SUN.night);
+  assert.equal(sunState(sunVector(20, -100, lat), fr), SUN.behind, 'summer morning: sun in the north-east');
+  assert.equal(sunState(sunVector(0, 0, lat), fr), SUN.lit);
+  assert.equal(sunState(sunVector(0, 0, lat), fr, parseHorizon('180:60')), SUN.hidden, 'equinox noon sun is 48° up');
+  assert.equal(sunState(sunVector(0, 0, lat), fr, parseHorizon('180:40')), SUN.lit);
+  assert.equal(sunState(sunVector(0, 80, lat), fr, [], 12), SUN.graze, 'late afternoon: nearly in the wall plane');
+});
+
+test('sunlight grid: agrees with sunStats, centred on solar noon in clock time, and loses the hidden hours', () => {
+  const lat = 41.9028, lon = 12.4964, tz = 1;
+  for (const D of [0, 45, -60]) {
+    const g = sunlightGrid(lat, lon, tz, D);
+    near(g.avg, sunStats(lat, D).litPerDay, 0.15, `D = ${D}`);
+  }
+  // south wall: the lit span is centred on apparent noon, which the clock shows at 12:00 + lonCorrection − EoT
+  const g = sunlightGrid(lat, lon, tz, 0, [], 0, 1, 2);
+  for (const c of [g.cols[79], g.cols[171], g.cols[264]]) {
+    const lit = [...c.codes.keys()].filter((k) => c.codes[k] >= SUN.graze);
+    const mid = ((lit[0] + lit[lit.length - 1] + 1) / 2) * g.stepMin;
+    const eot = yearCorrections(lon, tz, 'none')[c.i].eot;
+    near(mid, 720 + lonCorrection(lon, tz) - eot, 2.5, `day ${c.i}`);
+  }
+  const hz = parseHorizon('100:25, 180:12, 250:30'), h = sunlightGrid(lat, lon, tz, 45, hz, 12);
+  assert.ok(h.avg < sunlightGrid(lat, lon, tz, 45, [], 12).avg - 1, 'obstacles take hours away');
+  assert.ok(h.cols.some((c) => c.codes.includes(SUN.hidden)) && h.cols.some((c) => c.codes.includes(SUN.graze)));
+  near(buildDial(sanitize({ ...DEFAULTS, horizon: '100:25, 180:12, 250:30' }).s, makeT('en')).stats.litPerDay, h.avg, 0.2, 'the dial statistics use the profile');
+  assert.ok(h.max.litH >= h.avg && h.min.litH <= h.avg);
+});
+
+test('sun chart: no broken numbers, legend inside the chart, hatched hidden cells, marker inside the plot', () => {
+  for (const lang of ['en', 'it']) {
+    for (const [lat, lon, tz, D, hz, dst] of [[41.9, 12.5, 1, 45, '100:25, 180:12, 250:30', 'EU'], [-33.87, 151.2, 10, 180, '', 'AU'], [5, 0, 0, 90, '0:10', 'none'], [60, 10, 1, -90, '', 'EU']]) {
+      const t = makeT(lang), grid = sunlightGrid(lat, lon, tz, D, parseHorizon(hz), 12);
+      const c = sunChart(grid, { w: 262, h: 120, t, dst: yearCorrections(lon, tz, dst), grazing: 12 });
+      assert.ok(!/NaN|undefined|Infinity/.test(c.markup), `${lang} ${lat} ${D}`);
+      assert.equal(/fill="url\(#sunHatch\)"/.test(c.markup), grid.cols.some((x) => x.codes.includes(SUN.hidden)), 'hatching exactly when something is hidden');
+      for (const m of c.markup.matchAll(/<text class="sc-t" x="([\d.]+)" y="([\d.]+)">([^<]*)<\/text>/g)) {
+        assert.ok(+m[1] + m[3].length * 1.6 <= 262 + 1, `legend "${m[3]}" leaves the chart (${lang})`);
+      }
+      assert.ok(c.t0 % 60 === 0 && c.t1 % 60 === 0 && c.t1 > c.t0);
+      const mk = sunChartMarker(c, 400, 2000).match(/cx="([\d.]+)" cy="([\d.]+)"/);
+      const { px, py, pw, ph } = c.box;
+      assert.ok(+mk[1] <= px + pw + 1e-6 && +mk[2] <= py + ph + 1e-6 && +mk[2] >= py - 1e-6, 'marker clamped into the plot');
     }
   }
 });

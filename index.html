@@ -48,6 +48,8 @@
         <span class="pair"><input type="range" data-k="D" min="-180" max="180" step="0.5"><input type="number" data-k="D" min="-180" max="180" step="0.1"></span></label>
       <p class="hint"><span data-i18n="facesAz"></span>: <b id="facesAz"></b></p>
       <p class="hint" id="wallRange"></p>
+      <label><span data-i18n="horizon"></span><input type="text" data-k="horizon" maxlength="600" placeholder="100:25, 180:10, 250:30" spellcheck="false"></label>
+      <p class="hint" data-i18n="horizonHelp"></p>
       <details class="nested">
         <summary data-i18n="measure"></summary>
         <h4 data-i18n="measureShadowTitle"></h4>
@@ -195,6 +197,12 @@
       <summary data-i18n="corrTitle"></summary>
       <p class="hint" id="corrNow"></p>
       <div id="corrGraph"></div>
+    </details>
+
+    <details class="corr" open>
+      <summary data-i18n="sunTitle"></summary>
+      <p class="hint" id="sunNow"></p>
+      <div id="sunGraph" class="sun-graph"><div id="sunTip" class="sun-tip" hidden></div></div>
     </details>
 
     <article class="learn" id="learn">
