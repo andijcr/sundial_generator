@@ -5,7 +5,7 @@ import { labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, d
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
-import { printJobHtml, printJobPages, MAX_QUIET_PAGES } from '../js/svg.js';
+import { printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -166,7 +166,7 @@ test('tile layout matches the rendered tiles; face size matches the sheet', () =
   const t = makeT('en');
   const dial = buildDial(s, t);
   const sheet = faceSheet(dial, { s, t });
-  const size = faceSheetSize(dial);
+  const size = faceSheetSize(dial, s);
   assert.deepEqual([size.W, size.H], [sheet.W, sheet.H]);
   for (const paper of ['A4', 'A3', 'A2']) {
     const lay = tileLayout(size.W, size.H, paper, 10);
@@ -851,4 +851,65 @@ test('labels do not overlap, even with every option on, and summer-time numbers 
   assert.ok(!(ba[0] < bb[1] && bb[0] < ba[1] && ba[2] < bb[3] && bb[2] < ba[3]), 'b moved clear of a');
   assert.ok(Math.hypot(b.x - 0.5, b.y) <= 0.45 * 5 * 8 + 1e-9, 'not far');
   assert.ok(Math.hypot(d.x - b.x, d.y - b.y) < 12, 'the summer-time number stays next to its hour');
+});
+
+test('laser files: one Inkscape layer per job, in its colour; nothing lost; outlines cut in one piece', () => {
+  const layerBodies = (svg) => Object.fromEntries([...svg.matchAll(/<g inkscape:groupmode="layer" inkscape:label="([^"]+)">([\s\S]*?)<\/g>(?=\n<g inkscape|$|\n<\/svg>|<\/svg>)/g)].map((m) => [m[1], m[2]]));
+  for (const lang of ['en', 'it']) {
+    for (const c of [{}, { gBlade: true, rodX: 2, bladeR: 0.5 }, { plateW: 150, plateH: 120 }, { faceBrief: true }, { gPolar: false, gRod: false, gBlade: true }]) {
+      const { s } = sanitize({ ...DEFAULTS, ...c, lang, material: 'laser' });
+      const t = makeT(lang), dial = buildDial(s, t), ctx = { s, t, place: 'x', dateStr: 'x' };
+      for (const sh of [faceSheet(dial, ctx), gnomonSheet(dial, ctx)]) {
+        const svg = svgDoc(sh);
+        assert.ok(sh.laser && svg.includes('xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"'), 'Inkscape namespace');
+        assert.ok(!/NaN|undefined|Infinity/.test(svg), `${sh.name} ${JSON.stringify(c)}`);
+        const L = layerBodies(svg);
+        assert.ok(L.Cut && L['Notes (do not send to the laser)'], `${sh.name}: cut and notes layers`);
+        for (const tok of markupTokens(L.Cut)) assert.equal(laserLayerOf(tok), 'cut', tok);
+        // the job colours come from the CSS: red cut, blue score, black text, green notes; no other colour
+        const css = sh.css + svg.match(/<style>([\s\S]*?)<\/style>/)[1];
+        assert.match(css, new RegExp(`\\.(plate|cut)\\{fill:none;stroke:${LASER.cut}`));
+        if (sh.name === 'face') {
+          assert.ok(L['Score (vector engrave)'] && L['Engrave (text)'], 'dial lines scored, text engraved');
+          assert.match(css, new RegExp(`\\.l-hour\\{fill:none;stroke:${LASER.score}`));
+          assert.ok(svg.includes(t('laserNote').split(' ')[0]), 'the sheet says what the colours mean');
+        } else assert.match(css, new RegExp(`\\.fold\\{stroke:${LASER.score}`));
+        const colours = new Set([...(css + svg).matchAll(/(?:stroke|fill)[:=]"?(#[0-9a-fA-F]{3,6})/g)].map((m) => m[1].toLowerCase()));
+        for (const col of colours) assert.ok(Object.values(LASER).includes(col) || col === '#000' || col === '#fff', `${sh.name}: stray colour ${col}`);
+        // a single page of a tiled laser sheet is valid XML with the namespace too
+        assert.ok(tileSheets(sh, 'A4', 10, 'x')[0].svg.includes('xmlns:inkscape'), 'tile');
+      }
+      // the gnomon outlines: one cut polygon per piece (triangle with tab, blade with tab, rod)
+      const g = svgDoc(gnomonSheet(dial, ctx));
+      const pieces = (s.gPolar && dial.root ? 1 : 0) + (s.gBlade ? 1 : 0) + (s.gRod ? 1 : 0);
+      assert.equal((g.match(/class="cut"/g) || []).length, pieces, `one outline per piece ${JSON.stringify(c)}`);
+    }
+  }
+  // sorting into layers keeps every element, in order within its layer
+  const markup = '<rect class="plate" x="0"/><path class="l-hour" d="M0 0"/><text class="t t-hour" x="1">12</text><path class="dim" d="M1 1"/><circle class="nodus" r="1"/><path class="fold" d="M2 2"/><text class="st sb" x="2">T</text>';
+  const out = laserLayers([[markup, 'translate(5,5)']]);
+  assert.equal(markupTokens(out).sort().join(''), markupTokens(markup).sort().join(''), 'no element lost or duplicated');
+  assert.deepEqual(markupTokens(markup).map(laserLayerOf), ['cut', 'score', 'engrave', 'notes', 'notes', 'score', 'notes']);
+  // paper and tile sheets are unchanged: no layers
+  const { s } = sanitize({ ...DEFAULTS }), t = makeT('en'), dial = buildDial(s, t);
+  assert.ok(!svgDoc(faceSheet(dial, { s, t })).includes('inkscape:groupmode'));
+});
+
+test('face sheet: the title block and the scale bar never overlap; the bar goes below on narrow plates', () => {
+  for (const lang of ['en', 'it']) {
+    for (const plateW of [50, 120, 200, 300, 450, 1000]) {
+      const { s } = sanitize({ ...DEFAULTS, lang, plateW, plateH: 200, hZone: true, anaZoneNoon: true, anaHours: true });
+      const t = makeT(lang), dial = buildDial(s, t), sh = faceSheet(dial, { s, t, place: 'Roma', dateStr: '2026-01-01' });
+      const svg = svgDoc(sh);
+      const texts = [...svg.matchAll(/<text class="st[^"]*" x="([\d.]+)" y="([\d.]+)" font-size="([\d.]+)">([^<]*)<\/text>/g)].map((m) => ({ x: +m[1], y: +m[2], len: m[4].length }));
+      const bar = svg.match(/<path class="dim" d="M([\d.]+) ([\d.]+)H([\d.]+)"\/><path class="dim" d="M[\d.]+ [\d.]+V/);
+      const [bx, by] = [+bar[1], +bar[2]];
+      for (const tl of texts) {
+        const right = tl.x + tl.len * 1.95, beside = right < bx - 2, above = tl.y < by - 9;
+        assert.ok(beside || above, `${lang} ${plateW}: a title line runs into the bar`);
+        assert.ok(right <= sh.W + 1, `${lang} ${plateW}: a title line leaves the sheet`);
+      }
+      assert.ok(bx >= 0 && bx + 100 <= sh.W, `${lang} ${plateW}: the bar is on the sheet`);
+    }
+  }
 });

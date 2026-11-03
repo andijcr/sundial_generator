@@ -125,6 +125,11 @@ only at the poles); its shadow gives azimuth, not time. Open idea: let the user
 choose the blade height, and add a pinhole-plate nodus for a sharper spot.
 
 ### SVG export (print plans)
+Laser files (`material: 'laser'`): `laserLayers` (`svg.js`) sorts a sheet's flat markup into Inkscape layers by class
+(`laserLayerOf`: plate/cut → Cut #f00, dial lines/marks/folds → Score #00f, plate text → Engrave #000, the rest → Notes
+#0a0), and `LASER` holds the colours that `dialCss`/`sheetCss` use. Each gnomon piece is one closed cut outline including
+its tab. The face sheet's title block width is estimated from its lines; the 100 mm bar goes beside it when there is
+room, else below it.
 - Real units: `width="…mm"` so 1 user unit = 1 mm at 100 % print scale.
 - **Sheet 1 — dial face** with gnomon foot / nodus foot marked, plate
   dimensions, a 100 mm scale bar to verify print scaling, the vertical
