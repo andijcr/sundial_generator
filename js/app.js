@@ -3,7 +3,7 @@
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
 import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
-import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, serializeState, dstLabelsApply } from './state.js';
+import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
 
@@ -80,6 +80,7 @@ function writeControls() {
     else if (document.activeElement !== el) el.value = typeof v === 'number' ? +v.toFixed(4) : v;
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
+  $('[data-k="rodX"]').disabled = !state.gRod; // an oversized rod is a rod
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
   $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;
@@ -207,7 +208,7 @@ function renderTime() {
     if (tr) tr.innerHTML = time.trailOn ? trailMarkup(dial, time.trail) : '';
   }
   if (state.v3d) {
-    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: absoluteDeclination(state.lat, state.D), gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, trail: time.trailOn ? time.trail : [] });
+    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: absoluteDeclination(state.lat, state.D), gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, rodX: state.rodX, trail: time.trailOn ? time.trail : [] });
   }
   // readout
   updateCorrectionMarker(sun, c);
@@ -349,6 +350,7 @@ function printJob() {
 function updateTiles() {
   const box = $('#tiles'), info = $('#printInfo');
   const none = state.paper === 'none';
+  $('#fitPage').disabled = none;
   for (const k of ['overlap', 'orient', 'printMargin']) $(`[data-k="${k}"]`).disabled = none; // they only matter with a paper size
   if (none) { info.textContent = t('printNone'); box.innerHTML = ''; return; }
   const { W, H } = faceSheetSize(dial, state);
@@ -370,6 +372,11 @@ function updateTiles() {
   box.innerHTML = `${btns.length ? `<span>${t('tilesFor')} (${btns.length}):</span>${btns.join('')}` : ''}<button type="button" id="printTiles">${t('printTiles')}</button>`;
 }
 function bindDownloads() {
+  $('#fitPage').addEventListener('click', () => {
+    const fit = fitPlateToPage(state, t, state.paper, tileOpts());
+    if (fit) Object.assign(state, fit); else inputWarnings.push(['fitPageNo']);
+    update();
+  });
   $('#dlFace').addEventListener('click', () => download(`${base()}-face.svg`, svgDoc(faceSheet(dial, ctx()))));
   $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheet(dial, ctx()))));
   $('#dlInfo').addEventListener('click', () => download(`${base()}-info.svg`, svgDoc(infoSheet(dial, ctx()))));

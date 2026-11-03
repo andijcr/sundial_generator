@@ -117,6 +117,7 @@ point of shadow-casting material there, so several constructions share one dial:
 |---|---|---|---|
 | Triangular polar style | the shadow of the whole edge | latitude and D (`sin SH = cos φ cos D`, plate along the substyle, `tan SD = sin D / tan φ`) | sharpest reading; impossible when the axis is parallel to the wall (D = ±90°) |
 | Perpendicular rod | the shadow of the tip | only L | simplest; fuzzy tip |
+| Oversized rod (×2, ×3, ×5) | the shadow of the notch, on a long shadow line from F | only L (notch L from the wall) | a rod k times longer: its shadow is k·P, so the line out of F gives the direction and the notch's shadow the point P |
 | Vertical blade | the shadow of the tip | only L (blade height h = L, 45° brace) | flat fin in the vertical plane ⟂ wall; easy to cut and mount; also works for east/west walls |
 
 A *vertical edge* cannot be a polar style (it is parallel to the Earth's axis
@@ -160,6 +161,9 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
   families told apart by dash pattern and weight: `BW_STYLE`).
 - "Print all" prints the dial's pages, the gnomon template, the info sheet and the correction chart in one
   job, with CSS named pages so each can have its own paper orientation.
+
+### Fit to a page
+`fitPlateToPage` (`state.js`) searches (bisection on the plate width, proportions kept) for the largest plate whose face sheet `tileLayout` puts on one page. It is a search because the sheet's margins depend on the foot and style root, which auto-fit moves with the plate. It is a button, not a mode, so it does not fight the plate fields. A plate too tall to fit even at 50 mm gets flatter proportions; a paper that cannot hold the 200 mm title block (A4 portrait) gives `null` and a warning.
 
 ### Sanity bounds & warnings
 - Latitude clamped to ±66° (`BOUNDS`).

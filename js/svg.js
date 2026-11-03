@@ -153,7 +153,9 @@ export function shadowMarkup(dial, ctx, S, trail) {
       out += `<polygon points="${X(A)},${Y(A)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gRod) {
-      out += `<line x1="${X([0, 0])}" y1="${Y([0, 0])}" x2="${X(Sc)}" y2="${Y(Sc)}" stroke="rgba(20,20,30,0.45)" stroke-width="${f(Math.max(dial.L * 0.025, 1.5))}" stroke-linecap="round"/>`;
+      // an oversized rod (rodX times longer) casts rodX times the shadow; the dot below, where its notch's shadow falls, is the reading
+      const k = ctx.s.rodX > 1 ? ctx.s.rodX : 1, Sr = [Sc[0] * k, Sc[1] * k];
+      out += `<line x1="${X([0, 0])}" y1="${Y([0, 0])}" x2="${X(Sr)}" y2="${Y(Sr)}" stroke="rgba(20,20,30,0.45)" stroke-width="${f(Math.max(dial.L * 0.025, 1.5))}" stroke-linecap="round"/>`;
     }
     if (n <= big) {
       out += `<circle cx="${X(S)}" cy="${Y(S)}" r="${f(fs * 0.35)}" fill="rgba(20,20,30,0.75)"/>`;
@@ -379,7 +381,27 @@ export function gnomonSheet(dial, ctx) {
     right = Math.max(right, bx + L + 24, bx - tb + 90);
     H = Math.max(H, fy + 22 + bladeLines.length * 3.2 * 1.45); // the bottom of the caption
   }
-  if (s.gRod || (s.gPolar && !dial.root)) {
+  const kRod = s.gRod && s.rodX > 1 ? s.rodX : 1;
+  if (kRod > 1) {
+    // Oversized rod: rodX times longer than needed, lying along the bottom of the sheet. Its shadow on the wall is a long line
+    // from F (every point of the rod casts its shadow in proportion to its distance from the wall), so the direction is easy
+    // to read; the notch, L from the wall, throws its shadow exactly where the true nodus would.
+    const EMB = 30, WD = 6, ND = 2.5, len = kRod * L;
+    const x0 = M + 6, xf = x0 + len, xe = xf + EMB, xn = xf - L, oy = Math.max(H, top) + 16, my = oy + WD / 2;
+    let g = `<polygon class="cut" points="${f(x0)},${f(oy)} ${f(xn - 3)},${f(oy)} ${f(xn)},${f(oy + ND)} ${f(xn + 3)},${f(oy)} ${f(xe)},${f(oy)} ${f(xe)},${f(oy + WD)} ${f(xn + 3)},${f(oy + WD)} ${f(xn)},${f(oy + WD - ND)} ${f(xn - 3)},${f(oy + WD)} ${f(x0)},${f(oy + WD)}"/>`;
+    g += `<path class="fold" d="M${f(xf)} ${f(oy - 4)}V${f(oy + WD + 4)}"/>`;
+    g += `<circle cx="${f(x0)}" cy="${f(my)}" r="1.2" class="nodus"/>`;
+    g += `<text class="dt" x="${f(x0)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
+    g += `<text class="dt" x="${f(xn)}" y="${f(oy - 3)}">${esc(t('rodNotch', mm(L)))}</text>`;
+    g += `<text class="dt" x="${f(xf + 3)}" y="${f(oy - 3)}" style="text-anchor:start">${EMB} mm ${esc(t('rodEmbed'))}</text>`;
+    g += dimH(x0, xf, oy + WD + 9, oy + WD, `${kRod}× = ${mm(len)}`);
+    g += dimH(xn, xf, oy + WD + 19, oy + WD, `L = ${mm(L)}`);
+    const longLines = wrapText(`${t('rod')}: ${t('rodLongNote', kRod)}`, 90);
+    g += textLines(x0, oy + WD + 28, longLines, 3.4);
+    inner += g;
+    right = Math.max(right, xe + 4, xf + 3 + (`${EMB} mm ${t('rodEmbed')}`).length * CHAR_W);
+    H = Math.max(H, oy + WD + 28 + longLines.length * 3.4 * 1.45);
+  } else if (s.gRod || (s.gPolar && !dial.root)) {
     const EMB = 30, ox = x + 10, oy = top + 10;
     let g = `<rect class="cut" x="${f(ox - 2)}" y="${f(oy)}" width="4" height="${f(L + EMB)}"/>`;
     g += `<path class="fold" d="M${f(ox - 10)} ${f(oy + L)}H${f(ox + 10)}"/>`;

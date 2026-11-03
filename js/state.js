@@ -3,7 +3,7 @@
 
 import { computeDial, autoFit, BLADE_RATIO, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
-import { sizesFor } from './svg.js';
+import { sizesFor, faceSheetSize, tileLayout } from './svg.js';
 
 export const PRESETS = {
   rome: { name: 'Roma', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU' },
@@ -42,7 +42,7 @@ export const DEFAULTS = {
   place: 'rome', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU',
   D: 45,
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
-  gPolar: true, gRod: true, gBlade: false,
+  gPolar: true, gRod: true, rodX: 1, gBlade: false,
   hSolar: true, hZone: false, hHalf: true, hQuarter: false, hRoman: false, hExtend: true, hDstLabels: false,
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false,
@@ -51,11 +51,14 @@ export const DEFAULTS = {
   v2d: true, v3d: true,
 };
 
+/** Length multipliers offered for the oversized rod (1 = the rod at its true length). */
+export const ROD_SCALES = [1, 2, 3, 5];
+
 // [min, max] sanity bounds for numeric settings
 export const BOUNDS = {
   lat: [-66, 66], lon: [-180, 180], tz: [-12, 14], D: [-180, 180],
   plateW: [50, 5000], plateH: [50, 5000], L: [L_MIN, L_MAX], fx: [-10000, 10000], fy: [-10000, 10000],
-  grazing: [1, 40], overlap: [0, 60], printMargin: [0, 30],
+  grazing: [1, 40], rodX: [1, 5], overlap: [0, 60], printMargin: [0, 30],
 };
 
 /** Coerce types, clamp to bounds. Returns { s, warnings }. */
@@ -83,6 +86,7 @@ export function sanitize(input) {
   // outside the tropics, walls facing away from the sun are not offered
   const lim = wallLimit(s.lat);
   if (Math.abs(s.D) > lim) { s.D = Math.sign(s.D) * lim; warnings.push(['wallClamped']); }
+  if (!ROD_SCALES.includes(s.rodX)) s.rodX = 1;
   if (!['paper', 'tile', 'laser'].includes(s.material)) s.material = 'paper';
   if (!['auto', 'portrait', 'landscape'].includes(s.orient)) s.orient = 'auto';
   if (!['color', 'bw'].includes(s.ink)) s.ink = 'color';
@@ -138,4 +142,29 @@ export function buildDial(s, t) {
   const off = Math.abs(lonCorrection(s.lon, s.tz)) / 60; // hours between the place and the middle of its time zone
   if (off > 190 / 60) dial.warnings.push(['zoneFar', off.toFixed(1)]); // a few places (far west of China) reach 3.1 h; more is probably a wrong zone
   return dial;
+}
+
+/**
+ * The largest plate that makes the face sheet a single page of `paper` (keeping the plate's proportions, whole
+ * millimetres), or null when even the smallest plate does not fit. The sheet is the plate plus margins that depend
+ * on what is drawn (and the automatic fit moves the foot and root with the plate), so this searches rather than solves.
+ * A plate too tall to fit even at the smallest width gets flatter proportions (the first of 1, 3:4, 1:2, ... that fits).
+ */
+export function fitPlateToPage(s, t, paper, opts = {}) {
+  const sheetFits = (w, h) => {
+    const sn = { ...s, plateW: w, plateH: h };
+    const z = faceSheetSize(buildDial(sn, t), sn);
+    return tileLayout(z.W, z.H, paper, 0, opts)?.pages === 1;
+  };
+  const [lo0, hi0] = [BOUNDS.plateW[0], BOUNDS.plateW[1]];
+  let ratio = s.plateH / s.plateW;
+  const size = (w) => [Math.floor(w), Math.max(BOUNDS.plateH[0], Math.floor(w * ratio))];
+  const ok = (w) => sheetFits(...size(w));
+  const flatter = [1, 0.75, 0.5, 0.35, 0.25].filter((r) => r < ratio);
+  while (!ok(lo0) && flatter.length) ratio = flatter.shift();
+  if (!ok(lo0)) return null;
+  let lo = lo0, hi = Math.min(hi0, 2000); // A2 is 594 mm: no single sheet is wider than that
+  while (hi - lo > 1) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
+  const [plateW, plateH] = size(lo);
+  return { plateW, plateH };
 }

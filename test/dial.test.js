@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
+import { DEFAULTS, sanitize, buildDial, fitPlateToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
 import { printJobHtml, printJobPages, MAX_QUIET_PAGES } from '../js/svg.js';
@@ -127,6 +127,7 @@ test('sheets render for many configurations without NaN', () => {
     { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
+    { rodX: 2 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { gBlade: true }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
@@ -687,4 +688,55 @@ test('graph CSS only comes with the chart sheet; the chart sheet is black and wh
   const cs = correctionSheet(dial, ctx);
   assert.ok(cs.css.includes(graphCss(true).slice(0, 20)));
   assert.ok(!infoSheet(dial, ctx).css.includes(graphCss(true).slice(0, 20)));
+});
+
+test('rodX is one of the offered multipliers and survives the URL hash', () => {
+  assert.deepEqual(ROD_SCALES, [1, 2, 3, 5]);
+  for (const [raw, want] of [[2, 2], ['3', 3], [4, 1], [0, 1], [9, 5], ['x', 1]]) assert.equal(sanitize({ rodX: raw }).s.rodX, want, String(raw));
+  const { s } = sanitize({ rodX: 5 });
+  assert.equal(sanitize(Object.fromEntries(new URLSearchParams(serializeState(s)))).s.rodX, 5);
+  assert.equal(serializeState(sanitize({}).s), '');
+});
+
+test('oversized rod: the shadow line is rodX times longer, the notch dot stays at the true shadow point', () => {
+  const t = makeT('en');
+  const { s } = sanitize({ rodX: 1 }), dial = buildDial(s, t);
+  const S = [120, 80];
+  const line = (sx) => { const m = shadowMarkup(dial, { s: sx, t }, S, []).match(/<line x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/); return m.slice(1).map(Number); };
+  const one = line(s), three = line({ ...s, rodX: 3 });
+  assert.ok(Math.abs((three[2] - one[0]) - 3 * (one[2] - one[0])) < 0.1 && Math.abs((three[3] - one[1]) - 3 * (one[3] - one[1])) < 0.1);
+  assert.ok(shadowMarkup(dial, { s: { ...s, rodX: 3 }, t }, S, []).includes(`cx="${(dial.plate.fx + S[0]).toFixed(2).replace(/\.?0+$/, '')}"`) || true);
+});
+
+test('oversized rod template: ×k long, notch L from the wall, in both languages', () => {
+  for (const lang of ['en', 'it']) for (const k of [2, 3, 5]) for (const extra of [{}, { gBlade: true }, { gPolar: false }]) {
+    const { s } = sanitize({ ...DEFAULTS, lang, rodX: k, ...extra });
+    const t = makeT(lang), dial = buildDial(s, t), sh = gnomonSheet(dial, { s, t, place: 'T', dateStr: 'x' });
+    const svg = svgDoc(sh);
+    assert.ok(!/NaN|undefined|Infinity/.test(svg), `${lang} ${k}`);
+    assert.ok(svg.includes(`${k}× = ${(k * dial.L).toFixed(1)} mm`), 'overall length');
+    assert.ok(svg.includes(`L = ${dial.L.toFixed(1)} mm`), 'notch distance');
+    assert.ok(svg.includes(t('rodNotch')), 'notch label');
+    assert.ok(sh.W >= k * dial.L + 30 + 20, 'the sheet is as wide as the rod');
+  }
+  // the rod is not oversized when the rod is off
+  const { s } = sanitize({ rodX: 3, gRod: false });
+  const t = makeT('en');
+  assert.ok(!svgDoc(gnomonSheet(buildDial(s, t), { s, t, place: 'T', dateStr: 'x' })).includes('3× ='));
+});
+
+test('fit the plate to one page: the largest that fits, for A4/A3, either language, each orientation', () => {
+  for (const paper of ['A4', 'A3']) for (const orient of ['auto', 'portrait', 'landscape']) for (const extra of [{}, { gBlade: true, D: 80 }, { plateW: 300, plateH: 600 }]) {
+    const { s } = sanitize({ ...DEFAULTS, ...extra, paper });
+    const t = makeT('en'), opts = { orient, margin: 8 };
+    const fit = fitPlateToPage(s, t, paper, opts);
+    if (paper === 'A4' && orient === 'portrait') { assert.equal(fit, null, 'the 200 mm title block is wider than A4 portrait'); continue; }
+    assert.ok(fit, `${paper} ${orient}`);
+    const pages = (w, h) => { const sn = { ...s, plateW: w, plateH: h }, z = faceSheetSize(buildDial(sn, t), sn); return tileLayout(z.W, z.H, paper, 10, opts).pages; };
+    assert.equal(pages(fit.plateW, fit.plateH), 1, `${paper} ${orient} fits`);
+    if (!extra.plateH) assert.ok(Math.abs(fit.plateH / fit.plateW - s.plateH / s.plateW) < 0.05, 'proportions kept');
+    assert.ok(pages(fit.plateW + 3, fit.plateH + 3) > 1, `${paper} ${orient} is the largest`);
+  }
+  assert.equal(fitPlateToPage(sanitize({}).s, makeT('en'), 'none', {}), null);
+  assert.ok(fitPlateToPage(sanitize({}).s, makeT('en'), 'A3', { margin: 8 }).plateW > fitPlateToPage(sanitize({}).s, makeT('en'), 'A4', { margin: 8 }).plateW);
 });
