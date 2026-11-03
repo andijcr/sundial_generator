@@ -26,6 +26,16 @@ export function wallFrame(D) {
   return { n: [-s, -c, 0], u: [c, -s, 0], v: [0, 0, 1] };
 }
 
+/**
+ * The vertical blade gnomon is a flat fin standing in the plane that holds the
+ * wall normal and the vertical. Its lower edge runs from the foot F out to the
+ * nodus (distance L); its upper edge slopes back to the wall at height h above F.
+ * Only the tip (nodus) is read, so the dial itself is the same as for a rod.
+ * h is a fixed fraction of L (a 45° brace).
+ */
+export const BLADE_RATIO = 1;
+export const bladeHeight = (L) => L * BLADE_RATIO;
+
 /** Direction of the north celestial pole in [east, north, up]. */
 export function poleAxis(lat) {
   return [0, Math.cos(lat * DEG), Math.sin(lat * DEG)];
@@ -144,7 +154,7 @@ const ROMAN = ['XXIV', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', '
  * nodus shadows over the year while the sun is at least `grazing` degrees
  * off the wall plane and 2° above the horizon. Used for auto-fitting.
  */
-export function coreBBox(lat, D, grazing, includeRoot) {
+export function coreBBox(lat, D, grazing, includeRoot, extraTop = 0) {
   const fr = wallFrame(D);
   const { min, max } = declLimits();
   const sg = Math.sin(grazing * DEG), sa = Math.sin(2 * DEG);
@@ -166,12 +176,13 @@ export function coreBBox(lat, D, grazing, includeRoot) {
       y0 = Math.min(y0, R[1]); y1 = Math.max(y1, R[1]);
     }
   }
+  y1 = Math.max(y1, extraTop); // room above the foot, e.g. for the blade (in units of L)
   return { x0, x1, y0, y1, n };
 }
 
 /** Choose nodus length L and foot position so the core region fits the plate. */
-export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0) {
-  const b = coreBBox(lat, D, grazing, includeRoot);
+export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0, extraTop = 0) {
+  const b = coreBBox(lat, D, grazing, includeRoot, extraTop);
   const bw = Math.max(b.x1 - b.x0, 0.05), bh = Math.max(b.y1 - b.y0, 0.05);
   const m = plate.margin;
   const aw = plate.w - 2 * m, ah = plate.h - 2 * m - bottomReserve;
@@ -275,7 +286,7 @@ export function computeDial(cfg) {
       const isMajor = Math.abs(h - Math.round(h)) < 1e-6;
       const clipped = clipAll(raw, clip);
       (isMajor ? major : minor).push(...clipped);
-      if (o.hExtend && root && isMajor && clipped.length) {
+      if (o.hExtend && o.gPolar && root && isMajor && clipped.length) {
         let near = null, nd = Infinity;
         for (const l of raw) for (const pt of [l[0], l[l.length - 1]]) {
           const d = dist(pt, root);
@@ -491,8 +502,9 @@ export function computeDial(cfg) {
   const warnings = [];
   const stats = sunStats(lat, D);
   if (Math.abs(lat) < 10) warnings.push(['nearEquator']);
-  if (!root) warnings.push(['polarParallel']);
-  else if (Math.hypot(root[0], root[1]) > 4 * L) warnings.push(['rootFar', (Math.hypot(root[0], root[1]) / L).toFixed(1)]);
+  // these two only concern the triangular polar style
+  if (o.gPolar && !root) warnings.push(['polarParallel']);
+  else if (o.gPolar && Math.hypot(root[0], root[1]) > 4 * L) warnings.push(['rootFar', (Math.hypot(root[0], root[1]) / L).toFixed(1)]);
   if (Math.abs(Math.abs(D) - 90) < 12) warnings.push(['eastWest']);
   if (stats.litPerDay < 0.05) warnings.push(['noSun']);
   else if (stats.litPerDay < 3) warnings.push(['littleSun', stats.litPerDay.toFixed(1)]);

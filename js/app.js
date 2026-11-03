@@ -171,7 +171,7 @@ function renderTime() {
     if (tr) tr.innerHTML = time.trailOn ? trailMarkup(dial, time.trail) : '';
   }
   if (state.v3d) {
-    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: state.D, gPolar: state.gPolar, gRod: state.gRod, trail: time.trailOn ? time.trail : [] });
+    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: state.D, gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, trail: time.trailOn ? time.trail : [] });
   }
   // readout
   const lit = sun.alt > 0 && S;

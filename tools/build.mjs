@@ -27,6 +27,7 @@ const variants = {
     xAzimuth: true, motto: 'Horas non numero nisi serenas', paper: 'A4',
   },
   'rome-sw-laser': { material: 'laser' },
+  'rome-sw-blade': { gPolar: false, gRod: false, gBlade: true },
   'london-south': { place: 'london', ...PRESETS.london, D: 0 },
 };
 

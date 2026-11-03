@@ -106,6 +106,7 @@
       <fieldset><legend data-i18n="gnomonType"></legend>
         <label class="chk"><input type="checkbox" data-k="gPolar"> <span data-i18n="gPolar"></span></label>
         <label class="chk"><input type="checkbox" data-k="gRod"> <span data-i18n="gRod"></span></label>
+        <label class="chk"><input type="checkbox" data-k="gBlade"> <span data-i18n="gBlade"></span></label>
       </fieldset>
     </details>
 
@@ -203,6 +204,7 @@
           <li>Longitude difference: <code>tan DL = tan D / sin φ</code> → <b data-v="DL"></b> (the substyle is the <b data-v="subH"></b> solar hour line)</li>
         </ul>
         <p>The code doesn't use these formulas. It computes R by intersecting the axis line with the wall, and the tests check that the two methods agree.</p>
+        <p><b>Do you need the style at all?</b> No. The dial depends only on the nodus, the point at distance L in front of F. The style just lets the whole edge read the hour. Replace it with a rod or a <b>vertical blade</b> whose tip sits at the nodus and every line stays where it is, but you now read the shadow of the tip, which is blurrier than a sharp edge. A vertical <i>edge</i> cannot serve as the style: it is parallel to the Earth's axis only at the poles.</p>
         <h3>5. Reading the right time</h3>
         <p>A classic dial shows <b>apparent solar time</b>. Getting from there to the clock needs three corrections:</p>
         <ul>
@@ -244,6 +246,7 @@
           <li>Differenza di longitudine: <code>tan DL = tan D / sin φ</code> → <b data-v="DL"></b> (la sostilare coincide con la linea delle <b data-v="subH"></b> solari)</li>
         </ul>
         <p>Il codice non usa queste formule. Calcola R intersecando la retta dell'asse con il muro, e i test verificano che i due metodi coincidano.</p>
+        <p><b>Serve davvero lo stilo?</b> No. Il quadrante dipende solo dal nodo, il punto a distanza L davanti a F. Lo stilo serve solo a far leggere l'ora a tutto il suo spigolo. Sostituiscilo con un'asta o con una <b>lama verticale</b> con la punta nel nodo: tutte le linee restano dove sono, ma si legge l'ombra della punta, più sfocata di quella di uno spigolo netto. Uno spigolo <i>verticale</i> non può fare da stilo: è parallelo all'asse terrestre solo ai poli.</p>
         <h3>5. Leggere l'ora giusta</h3>
         <p>Una meridiana classica indica il <b>tempo solare vero</b>. Per passare all'orologio servono tre correzioni:</p>
         <ul>

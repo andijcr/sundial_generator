@@ -15,9 +15,11 @@ Every design choice is a checkbox, so you can compare options on the page:
 | Hour lines | apparent solar time · zone time with longitude correction · half/quarter hours · Roman numerals · summer-time labels · extension to the style root |
 | Calendar | noon figure-8 (local mean noon and/or 12:00 zone time) · figure-8 on every hour (reads clock time) · month marks · solstice/equinox lines · zodiac lines · month-start lines |
 | Extra marks | Italian hours · Babylonian hours · sun azimuth and altitude lines · substyle · info text · motto |
-| Gnomon | triangular polar style and/or perpendicular rod with nodus |
+| Gnomon | triangular polar style · perpendicular rod with nodus · vertical blade (tip only) |
 | Output | paper (colour) · painted tile (bold) · laser cut/engrave (hairline) · one sheet or tiled pages |
 | Views | front view · 3D view · English / Italiano |
+
+**Gnomon types.** The dial depends only on the nodus, the point at distance L in front of the foot F. The triangular polar style (an edge parallel to the Earth's axis, leaning by the substyle angle) lets the whole edge read the hour. The rod and the vertical blade are tip-only: the same lines, but you read the shadow of the tip. The blade is a flat fin standing in the vertical plane perpendicular to the wall, with its lower edge ending at the nodus and a 45° sloping edge back to the wall, which is the easiest shape to cut and mount. All three can be selected together for comparison.
 
 A "measure my wall" helper works out the wall declination from a shadow at a known time, or from a compass bearing.
 

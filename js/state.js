@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit } from './dial.js';
+import { computeDial, autoFit, BLADE_RATIO } from './dial.js';
 import { DST_RULES } from './astro.js';
 import { sizesFor } from './svg.js';
 
@@ -29,7 +29,7 @@ export const DEFAULTS = {
   place: 'rome', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU',
   D: 45,
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
-  gPolar: true, gRod: true,
+  gPolar: true, gRod: true, gBlade: false,
   hSolar: true, hZone: false, hHalf: true, hQuarter: false, hRoman: false, hExtend: true, hDstLabels: false,
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false,
@@ -73,7 +73,7 @@ export function sanitize(input) {
   if (!['en', 'it'].includes(s.lang)) s.lang = 'en';
   s.motto = s.motto.slice(0, 80);
   // a dial needs at least one way of telling the time
-  if (!s.gPolar && !s.gRod) s.gRod = true;
+  if (!s.gPolar && !s.gRod && !s.gBlade) s.gRod = true;
   // dedupe identical warnings
   const seen = new Set();
   return { s, warnings: warnings.filter((w) => !seen.has(w[0]) && seen.add(w[0])) };
@@ -96,7 +96,8 @@ export function buildDial(s, t) {
   let { L, fx, fy } = s;
   if (s.auto) {
     // extra room around the shadow region for the hour labels
-    const fit = autoFit(s.lat, s.D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve);
+    const fit = autoFit(s.lat, s.D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
+      s.includeRoot && s.gBlade ? BLADE_RATIO : 0);
     L = r2(fit.L, 1); fx = r2(fit.fx, 0.5); fy = r2(fit.fy, 0.5);
   }
   return computeDial({
