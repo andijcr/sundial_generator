@@ -4,6 +4,7 @@
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
 import { solarParams, dayMs, isDst, REF_YEAR, fmtHM, lonCorrection } from './astro.js';
+import { bladeHeight } from './dial.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -96,7 +97,12 @@ export function frontViewSvg(dial, ctx) {
   if (dial.root && ctx.s.gPolar) {
     g += `<line x1="${f(P.fx + dial.root[0])}" y1="${f(P.fy - dial.root[1])}" x2="${f(P.fx)}" y2="${f(P.fy)}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
   }
-  if (ctx.s.gRod) g += `<circle cx="${f(P.fx)}" cy="${f(P.fy)}" r="${f(dial.fontSize * 0.35)}" fill="#2b2b2b"/>`;
+  if (ctx.s.gBlade) {
+    // seen from the front the blade is edge-on: a vertical bar from F up to height h
+    g += `<line x1="${f(P.fx)}" y1="${f(P.fy)}" x2="${f(P.fx)}" y2="${f(P.fy - bladeHeight(dial.L))}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
+  }
+  // rod and blade both point at the viewer from F: one dot
+  if (ctx.s.gRod || ctx.s.gBlade) g += `<circle cx="${f(P.fx)}" cy="${f(P.fy)}" r="${f(dial.fontSize * 0.35)}" fill="#2b2b2b"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(-pad)} ${f(-pad)} ${f(P.w + 2 * pad)} ${f(P.h + 2 * pad)}" role="img">
 <style>${dialCss(ctx.s.material === 'laser' ? 'paper' : ctx.s.material, sw)}</style>
 <defs><pattern id="bricks" width="60" height="30" patternUnits="userSpaceOnUse"><rect width="60" height="30" fill="#d9c7a7"/><path d="M0 0H60M0 15H60M30 0V15M0 15V30M60 15V30" stroke="#c7b28e" stroke-width="1"/></pattern>
@@ -119,6 +125,10 @@ export function shadowMarkup(dial, ctx, S, trail) {
     const Sc = n > big ? [S[0] / n * big, S[1] / n * big] : S;
     if (ctx.s.gPolar && dial.root) {
       out += `<polygon points="${X(dial.root)},${Y(dial.root)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
+    }
+    if (ctx.s.gBlade) {
+      const A = [0, bladeHeight(dial.L)];
+      out += `<polygon points="${X(A)},${Y(A)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gRod) {
       out += `<line x1="${X([0, 0])}" y1="${Y([0, 0])}" x2="${X(Sc)}" y2="${Y(Sc)}" stroke="rgba(20,20,30,0.45)" stroke-width="${f(Math.max(dial.L * 0.025, 1.5))}" stroke-linecap="round"/>`;
@@ -160,9 +170,20 @@ function dimV(y1, y2, x, xRef, text) {
     `<path class="dim" d="M${f(x)} ${f(y1)}V${f(y2)}" marker-start="url(#arr)" marker-end="url(#arr)"/>` +
     (Math.abs(y2 - y1) > 28
       ? `<text class="dt" x="${f(cx - 1.2)}" y="${f(cy)}" transform="rotate(-90 ${f(cx - 1.2)} ${f(cy)})">${esc(text)}</text>`
-      : `<text class="dt" x="${f(cx + 1.5)}" y="${f(Math.max(y1, y2) + 4.5)}" style="text-anchor:start">${esc(text)}</text>`);
+      : `<text class="dt" x="${f(x < xRef ? cx - 1.5 : cx + 1.5)}" y="${f(Math.max(y1, y2) + 4.5)}" style="text-anchor:${x < xRef ? 'end' : 'start'}">${esc(text)}</text>`);
 }
 const mm = (x) => `${x.toFixed(1)} mm`;
+
+/** Greedy word wrap to lines of at most n characters. */
+function wrapText(str, n) {
+  const out = [];
+  let cur = '';
+  for (const w of String(str).split(' ')) {
+    if (cur && (cur + ' ' + w).length > n) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 
 function textLines(x, y, lines, size, gap = 1.45) {
   return lines.map((l, i) => {
@@ -261,10 +282,49 @@ export function gnomonSheet(dial, ctx) {
     x += a + 45;
     H = Math.max(H, oy + tb + 30);
   } else if (s.gPolar) {
-    inner += textLines(M, top + 8, [t('noPolar')], 4);
-    H = Math.max(H, top + 20);
+    const lines = wrapText(t('noPolar'), 40);
+    inner += textLines(M, top + 8, lines, 4);
+    x += 100; // keep the blade / rod clear of the text
+    H = Math.max(H, top + 8 + lines.length * 4 * 1.45 + 12);
   }
-  if (s.gRod || !dial.root) {
+  if (s.gBlade) {
+    // flat fin in the vertical plane: wall edge on the left (F at its foot), bottom edge out to the nodus N,
+    // sloping edge back up to the wall at height h. A fold tab runs along the wall edge.
+    const h = bladeHeight(L), tb = Math.min(TAB, L / 4);
+    const bx = x + TAB + 10, ay = top + 10, fy = ay + h;
+    const tip = Math.atan2(h, L) * 180 / Math.PI, th = tip * Math.PI / 180;
+    let g = `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx + L)},${f(fy)}"/>`;
+    g += `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx - tb)},${f(fy - tb)} ${f(bx - tb)},${f(ay + tb)}"/>`;
+    g += `<path class="fold" d="M${f(bx)} ${f(ay)}V${f(fy)}"/>`;
+    // What fits on the drawing stays on it; the rest goes to the caption (decided once, here).
+    const roomy = L >= 45;
+    const tabFits = roomy && h - 2 * tb >= t('tab').length * 1.9 + 6; // the rotated label must fit between the tab's slanted corners
+    const r = Math.min(L, h, 60) * 0.3;
+    if (roomy) {
+      g += `<path class="dim" d="M${f(bx + L - r)} ${f(fy)}A${f(r)} ${f(r)} 0 0 1 ${f(bx + L - r * Math.cos(th))} ${f(fy - r * Math.sin(th))}"/>`;
+      g += `<text class="dt" x="${f(bx + L - r - 3)}" y="${f(fy - 2)}" style="text-anchor:end">${tip.toFixed(1)}°</text>`;
+    }
+    g += dimH(bx, bx + L, fy + 9, fy, `L = ${mm(L)}`);
+    g += dimV(ay, fy, bx - tb - 10, bx - tb - 1, `h = ${mm(h)}`);
+    g += `<circle cx="${f(bx + L)}" cy="${f(fy)}" r="1" fill="#c0392b"/>`;
+    g += `<text class="dt" x="${f(bx + L + 3)}" y="${f(fy + 1)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
+    if (roomy) {
+      g += `<text class="dt" x="${f(bx + 3)}" y="${f(fy - 3)}" style="text-anchor:start">F</text>`;
+      g += `<text class="dt" x="${f(bx + 3)}" y="${f(ay + 4)}" style="text-anchor:start">${esc(t('bladeTop'))}</text>`;
+    }
+    // label beside the sloping edge (it descends to the right on the sheet), offset to its upper side
+    const lx = bx + L / 2 + 3 * Math.sin(th), ly = fy - h / 2 - 3 * Math.cos(th);
+    if (roomy) g += `<text class="dt" x="${f(lx)}" y="${f(ly)}" transform="rotate(${f(tip)} ${f(lx)} ${f(ly)})">${esc(t('bladeBrace'))} — ${mm(Math.hypot(L, h))}</text>`;
+    if (tabFits) g += `<text class="dt" x="${f(bx - tb / 2)}" y="${f((ay + fy) / 2)}" transform="rotate(-90 ${f(bx - tb / 2)} ${f((ay + fy) / 2)})">${esc(t('tab'))}</text>`;
+    inner += g;
+    const caption = [t('bladeWallEdge')];
+    if (!roomy) caption.push(`${t('bladeTop')}: ↑ · ${tip.toFixed(1)}° · ${t('bladeBrace')} ${mm(Math.hypot(L, h))}`);
+    if (!tabFits) caption.push(t('bladeTabAt'));
+    inner += textLines(bx - tb, fy + 22, [...caption, ...wrapText(`${t('blade')}: ${t('bladeNote')}`, 52)], 3.2);
+    x += Math.max(TAB + L + 70, 115);
+    H = Math.max(H, fy + 40);
+  }
+  if (s.gRod || (s.gPolar && !dial.root)) {
     const EMB = 30, ox = x + 10, oy = top + 10;
     let g = `<rect class="cut" x="${f(ox - 2)}" y="${f(oy)}" width="4" height="${f(L + EMB)}"/>`;
     g += `<path class="fold" d="M${f(ox - 10)} ${f(oy + L)}H${f(ox + 10)}"/>`;

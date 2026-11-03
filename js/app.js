@@ -71,6 +71,7 @@ function writeControls() {
     else if (document.activeElement !== el) el.value = typeof v === 'number' ? +v.toFixed(4) : v;
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
+  $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('#facesAz').textContent = `${((180 + state.D + 360) % 360).toFixed(1)}° (N→E)`;
   $('#frontWrap').hidden = !state.v2d;
   $('#v3dWrap').hidden = !state.v3d;
@@ -171,7 +172,7 @@ function renderTime() {
     if (tr) tr.innerHTML = time.trailOn ? trailMarkup(dial, time.trail) : '';
   }
   if (state.v3d) {
-    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: state.D, gPolar: state.gPolar, gRod: state.gRod, trail: time.trailOn ? time.trail : [] });
+    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: state.D, gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, trail: time.trailOn ? time.trail : [] });
   }
   // readout
   const lit = sun.alt > 0 && S;

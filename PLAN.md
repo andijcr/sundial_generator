@@ -101,13 +101,29 @@ longitude + EoT so it reads clock time (analemma per hour line).
   hours, substyle line, sun azimuth lines, motto & info text.
 - Everything clipped to the plate outline.
 
+### Gnomon types
+The dial is fully determined by the nodus N, the point at distance L in front
+of the foot F (perpendicular to the wall). The gnomon is only a way to put a
+point of shadow-casting material there, so several constructions share one dial:
+
+| Type | Reads | Fixed by | Notes |
+|---|---|---|---|
+| Triangular polar style | the shadow of the whole edge | latitude and D (`sin SH = cos φ cos D`, plate along the substyle, `tan SD = sin D / tan φ`) | sharpest reading; impossible when the axis is parallel to the wall (D = ±90°) |
+| Perpendicular rod | the shadow of the tip | only L | simplest; fuzzy tip |
+| Vertical blade | the shadow of the tip | only L (blade height h = L, 45° brace) | flat fin in the vertical plane ⟂ wall; easy to cut and mount; also works for east/west walls |
+
+A *vertical edge* cannot be a polar style (it is parallel to the Earth's axis
+only at the poles); its shadow gives azimuth, not time. Open idea: let the user
+choose the blade height, and add a pinhole-plate nodus for a sharper spot.
+
 ### SVG export (print plans)
 - Real units: `width="…mm"` so 1 user unit = 1 mm at 100 % print scale.
 - **Sheet 1 — dial face** with gnomon foot / nodus foot marked, plate
   dimensions, a 100 mm scale bar to verify print scaling, the vertical
   (plumb) reference line for mounting.
 - **Sheet 2 — gnomon**: triangular polar-style template with style height
-  angle, lengths, nodus position, mounting tabs (or a rod: length + angle).
+  angle, lengths, nodus position, mounting tabs (or a rod: length + angle,
+  or a vertical blade: lower edge L, height h, tip angle, fold tab).
 - **Sheet 3 — mounting/info**: wall declination, latitude, how to align,
   corrections table (EoT by date + longitude correction) for converting
   dial time to clock time.
@@ -138,13 +154,19 @@ declination note (~+4° E in Rome).
 ## 3. Architecture (no build step)
 
 ```
-index.html        page shell, controls, explanatory text
+index.html        page shell, controls, explanatory text (EN/IT)
 css/style.css
-js/astro.js       sun position, EoT, declination (pure functions)
-js/dial.js        wall frame, projection, line/curve generation, clipping
-js/svg.js         SVG builders: interactive view + print sheets + download
-js/app.js         UI wiring, state, URL hash for shareable settings
+js/astro.js       sun position, EoT, declination, DST rules, time helpers (pure)
+js/dial.js        wall frame, projection, every mark, clipping, auto-fit, warnings
+js/svg.js         SVG builders: front view, print sheets, tiling (pure strings)
+js/state.js       defaults, presets, sanity bounds, state -> dial
+js/view3d.js      small canvas 3D view
+js/i18n.js        English / Italian strings
+js/app.js         UI wiring, URL hash for shareable settings
+tools/build.mjs   builds _site/ and pre-renders sample plans
 test/*.test.js    `node --test` checks against known values (no deps)
+.github/workflows preview.yml (PR artifact) and pages.yml (deploy main)
+CLAUDE.md         notes for working on the code with Claude
 ```
 
 Native ES modules (`<script type="module">`), works directly on GitHub
@@ -158,3 +180,8 @@ Pages. No npm install required to run; `node --test` for the maths tests.
 4. SVG print export (face, gnomon, info) with dimensions & scale bar.
 5. Explanations panel, wall-measuring helper, warnings.
 6. Polish, URL-shareable settings, GitHub Pages publishing.
+7. Third gnomon option: vertical blade (tip-only) with its own template.
+
+Milestones 1-7 are done. Known gaps and ideas: during animation the trail and
+3D view are redrawn in full every frame; with every option on, some labels at
+the foot of the figure-8s overlap; adjustable blade height; pinhole nodus.
