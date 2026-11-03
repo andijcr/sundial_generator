@@ -1,8 +1,8 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
-import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection } from './astro.js';
+import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, REF_YEAR } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
-import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, tileName } from './svg.js';
+import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -135,7 +135,23 @@ function update() {
   time.trail = [];
   saveHash();
   refreshMeasure();
+  renderCorrection();
   renderTime();
+}
+
+// ---------------- correction chart ----------------
+let corr = null; // the chart's coordinate functions, for the "today" marker
+// The chart depends on the place, the time zone and summer time, and on the language: rebuilt on update(); only the marker moves with time.
+function renderCorrection() {
+  corr = correctionGraph(yearCorrections(state.lon, state.tz, state.dst), { x: 0, y: 0, w: 262, h: 112, t });
+  $('#corrGraph').innerHTML = `<svg viewBox="0 0 262 112" role="img" aria-label="${esc(t('corrTitle'))}"><style>${graphCss(false, true)}</style>${corr.markup}<g id="cg-today"></g></svg>`;
+}
+function updateCorrectionMarker(sun, c) {
+  if (!corr) return;
+  const day = Math.min(364, Math.round((Date.UTC(REF_YEAR, c.mo, c.d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000)) + (c.h * 60 + c.mi) / 1440;
+  const solar = lonCorrection(state.lon, state.tz) - sun.eot, zone = -sun.eot;
+  $('#cg-today').innerHTML = correctionMarker(corr, day, solar, zone);
+  $('#corrNow').textContent = t('cgToday', `${c.d} ${t('monthsShort')[c.mo]}`, fmtMin(solar), fmtMin(zone), c.dst ? t('cgTodayDst') : '');
 }
 
 function updateLearn() {
@@ -188,6 +204,7 @@ function renderTime() {
     view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: absoluteDeclination(state.lat, state.D), gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, trail: time.trailOn ? time.trail : [] });
   }
   // readout
+  updateCorrectionMarker(sun, c);
   const lit = sun.alt > 0 && S;
   const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : t('rBehind');
   const zoneRead = sun.solarMin + lonCorrection(state.lon, state.tz);
@@ -324,7 +341,7 @@ function currentTiles() {
 // everything to print: the dial's pages, then the gnomon template and the info sheet (each normally one page)
 function allPages() {
   const c = ctx(), nm = PRESETS[state.place]?.name || '';
-  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheet(dial, c), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')]]
+  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheet(dial, c), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')], [correctionSheet(dial, c), t('sheetCorr')]]
     .flatMap(([sheet, label]) => tileSheets(sheet, state.paper, state.overlap, label, tileOpts()));
 }
 // only the page grid is computed here; the SVGs are built when a button is clicked
@@ -353,6 +370,7 @@ function bindDownloads() {
   $('#dlFace').addEventListener('click', () => download(`${base()}-face.svg`, svgDoc(faceSheet(dial, ctx()))));
   $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheet(dial, ctx()))));
   $('#dlInfo').addEventListener('click', () => download(`${base()}-info.svg`, svgDoc(infoSheet(dial, ctx()))));
+  $('#dlCorr').addEventListener('click', () => download(`${base()}-correction.svg`, svgDoc(correctionSheet(dial, ctx()))));
   $('#tiles').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;

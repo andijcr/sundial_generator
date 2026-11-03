@@ -3,7 +3,7 @@
 //
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
-import { solarParams, dayMs, isDst, REF_YEAR, fmtHM, lonCorrection } from './astro.js';
+import { dayMs, REF_YEAR, fmtHM, lonCorrection, yearCorrections } from './astro.js';
 import { bladeHeight, absoluteDeclination } from './dial.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
@@ -70,7 +70,7 @@ function sheetCss(bw) {
 .dt{font-family:Helvetica,Arial,sans-serif;font-size:3.5px;fill:${text};text-anchor:middle}
 .st{font-family:Helvetica,Arial,sans-serif;fill:${text}}.sb{font-weight:bold}
 .cut{fill:${bw ? 'none' : '#f3efe4'};stroke:#000;stroke-width:0.35}.fold{stroke:#000;stroke-width:0.3;stroke-dasharray:3 2;fill:none}
-.reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:${bw ? '#000' : '#999'};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${bw ? '#000' : '#c0392b'}}`;
+.reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:${bw ? '#000' : '#999'};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${bw ? '#000' : '#c0392b'}}` + graphCss(bw);
 }
 
 const defs = (bw) => `<defs><marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${bw ? '#000' : '#444'}"/></marker></defs>`;
@@ -396,7 +396,7 @@ export function gnomonSheet(dial, ctx) {
   return { W, H, inner, css: '', name: 'gnomon', bw: s.ink === 'bw' };
 }
 
-const fmtMin = (m) => {
+export const fmtMin = (m) => {
   const sgn = m < 0 ? '−' : '+';
   const a = Math.abs(m);
   const mi = Math.floor(a), se = Math.round((a - mi) * 60);
@@ -432,20 +432,122 @@ export function infoSheet(dial, ctx) {
   inner += `<path class="dim" d="M${x} ${f(y)}H${W - x}"/>`;
   y += 4.6;
   const months = t('monthsShort');
-  const lonCorr = lonCorrection(s.lon, s.tz);
+  const corr = yearCorrections(s.lon, s.tz, s.dst); // the same data as the correction chart
   for (let mo = 0; mo < 12; mo++) {
     for (const day of [1, 15]) {
       const i = Math.round((Date.UTC(REF_YEAR, mo, day) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
-      const ms = dayMs(i);
-      const { eot } = solarParams(ms);
-      const dst = s.dst !== 'none' && isDst(ms, s.tz, s.dst);
-      const row = [`${day} ${months[mo]}`, fmtMin(eot), fmtMin(lonCorr - eot), fmtMin(-eot), dst ? '+60 m' : ''];
+      const d = corr[i];
+      const row = [`${day} ${months[mo]}`, fmtMin(d.eot), fmtMin(d.solar), fmtMin(d.zone), d.dst ? '+60 m' : ''];
       inner += row.map((v, k) => `<text class="st" x="${cols[k]}" y="${f(y)}" font-size="3.2">${esc(v)}</text>`).join('');
       y += 4.6;
     }
   }
   const H = Math.ceil(y + 2);
   return { W, H, inner, css: '', name: 'info', bw: s.ink === 'bw' };
+}
+
+// ---------------- Correction chart ----------------
+
+const signed1 = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`; // one decimal, with a proper minus sign
+
+/**
+ * CSS of the correction chart. page: the chart sits on the web page, so take text and grid colours from
+ * the page's theme (light or dark). bw: black and white print (families told apart by dashes).
+ */
+export function graphCss(bw, page = false) {
+  const text = page ? 'var(--ink)' : bw ? '#000' : '#222';
+  const axis = page ? 'var(--muted)' : bw ? '#000' : '#444';
+  const grid = page ? 'var(--line)' : bw ? '#000' : '#c8c8c8';
+  const solar = page ? 'var(--ink)' : bw ? '#000' : '#1b1b1b';
+  const zone = bw ? '#000' : '#1f5fa8';
+  const today = bw ? '#000' : '#e4572e';
+  const band = page ? 'rgba(240,160,32,0.22)' : '#f6e7bf';
+  return `.cg-t{font-family:Helvetica,Arial,sans-serif;font-size:3.2px;fill:${text}}.cg-s{font-size:2.8px}.cg-b{font-weight:bold}` +
+    `.cg-axis{stroke:${axis};stroke-width:0.3;fill:none}.cg-grid{stroke:${grid};stroke-width:0.12;fill:none${bw ? ';stroke-dasharray:0.4 1.6' : ''}}` +
+    `.cg-solar{fill:none;stroke:${solar};stroke-width:0.7;stroke-linejoin:round}.cg-zone{fill:none;stroke:${zone};stroke-width:0.7;stroke-linejoin:round${bw ? ';stroke-dasharray:3 1.4' : ''}}` +
+    `.cg-solar-dot{fill:${solar}}.cg-zone-dot{fill:${zone}}` +
+    `.cg-dst{fill:${bw ? 'none' : band};stroke:${bw ? '#000' : 'none'};stroke-width:0.2;stroke-dasharray:1 1}` +
+    `.cg-today{stroke:${today};stroke-width:0.4;fill:none}`;
+}
+
+/**
+ * The correction to apply, through the year, as a chart: minutes to add to the dial reading to get
+ * the standard clock time (y) against the date (x), one curve for the solar-time lines and one for the
+ * zone-time lines. Summer time is not folded into the curves (that would drown the wiggle in a 60 min
+ * step): the months it is in force are marked (shaded; outlined in black and white), with "add 60 more minutes". The extremes are labelled.
+ * data: yearCorrections(). Drawn into the box (x, y, w, h), mm. Returns { markup, X, Y, lo, hi, box }, where
+ * X(dayOfYear) and Y(minutes) are the plot's coordinates (used to place a "today" marker).
+ */
+export function correctionGraph(data, { x = 0, y = 0, w = 250, h = 100, t }) {
+  const px = x + 13, py = y + 9, pw = w - 13 - 3, ph = h - 9 - 9; // room for the axis labels, the legend row and the month names
+  const n = data.length, months = t('monthsShort');
+  const all = data.flatMap((d) => [d.solar, d.zone]);
+  const step = Math.max(...all, 0) - Math.min(...all, 0) > 40 ? 10 : 5;
+  const lo = Math.floor((Math.min(...all, 0) - 2) / step) * step, hi = Math.ceil((Math.max(...all, 0) + 2) / step) * step;
+  const X = (day) => px + ((day + 0.5) / n) * pw;
+  const Y = (v) => py + ph - ((v - lo) / (hi - lo)) * ph;
+  let g = '';
+  // the months summer time is in force
+  const runs = [];
+  data.forEach((d, i) => { if (d.dst) { const r = runs[runs.length - 1]; if (r && r[1] === i - 1) r[1] = i; else runs.push([i, i]); } });
+  for (const [a, b] of runs) g += `<rect class="cg-dst" x="${f(px + (a / n) * pw)}" y="${f(py)}" width="${f(((b - a + 1) / n) * pw)}" height="${f(ph)}"/>`;
+  // grid, with the minutes on the left (zero drawn as an axis)
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    g += `<path class="${v === 0 ? 'cg-axis' : 'cg-grid'}" d="M${f(px)} ${f(Y(v))}H${f(px + pw)}"/>`;
+    g += `<text class="cg-t" x="${f(px - 1.5)}" y="${f(Y(v) + 1.1)}" style="text-anchor:end">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}</text>`;
+  }
+  const first = (m) => Math.round((Date.UTC(REF_YEAR, m, 1) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+  for (let m = 0; m < 12; m++) {
+    const a = first(m), b = m < 11 ? first(m + 1) : n;
+    if (m > 0) g += `<path class="cg-grid" d="M${f(px + (a / n) * pw)} ${f(py)}V${f(py + ph)}"/>`;
+    g += `<text class="cg-t" x="${f(px + ((a + b) / 2 / n) * pw)}" y="${f(py + ph + 4.5)}" style="text-anchor:middle">${esc(months[m])}</text>`;
+  }
+  g += `<path class="cg-axis" d="M${f(px)} ${f(py)}V${f(py + ph)}H${f(px + pw)}"/>`;
+  g += `<text class="cg-t" x="${f(x + 2.5)}" y="${f(py + ph / 2)}" transform="rotate(-90 ${f(x + 2.5)} ${f(py + ph / 2)})" style="text-anchor:middle">${esc(t('cgY'))}</text>`;
+  // the curves
+  const path = (key) => 'M' + data.map((d, i) => `${f(X(i))} ${f(Y(d[key]))}`).join('L');
+  g += `<path class="cg-zone" d="${path('zone')}"/><path class="cg-solar" d="${path('solar')}"/>`;
+  // the extremes: value and date, above a maximum and below a minimum
+  const dateOf = (i) => { const d = new Date(dayMs(i)); return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`; };
+  const sep = Math.max(...data.map((d) => Math.abs(d.solar - d.zone)));
+  for (const [key, cls] of [['solar', 'cg-solar-dot'], ['zone', 'cg-zone-dot']]) {
+    if (key === 'zone' && sep < 2) continue; // the two curves almost coincide: one set of labels is enough
+    let imax = 0, imin = 0;
+    data.forEach((d, i) => { if (d[key] > data[imax][key]) imax = i; if (d[key] < data[imin][key]) imin = i; });
+    for (const [i, up] of [[imax, true], [imin, false]]) {
+      const v = data[i][key], cx = X(i), cy = Y(v), lx = Math.min(px + pw - 14, Math.max(px + 14, cx));
+      g += `<circle class="${cls}" cx="${f(cx)}" cy="${f(cy)}" r="0.9"/>`;
+      g += `<text class="cg-t cg-s" x="${f(lx)}" y="${f(up ? cy - 2 : cy + 4.5)}" style="text-anchor:middle">${signed1(v)} · ${esc(dateOf(i))}</text>`;
+    }
+  }
+  // legend row
+  const ly = y + 3.5;
+  g += `<path class="cg-solar" d="M${f(px)} ${f(ly - 1.1)}h8"/><text class="cg-t" x="${f(px + 10)}" y="${f(ly)}">${esc(t('colSolar'))}</text>`;
+  g += `<path class="cg-zone" d="M${f(px + 46)} ${f(ly - 1.1)}h8"/><text class="cg-t" x="${f(px + 56)}" y="${f(ly)}">${esc(t('colZone'))}</text>`;
+  if (runs.length) g += `<rect class="cg-dst" x="${f(px + 92)}" y="${f(ly - 2.8)}" width="8" height="3.6"/><text class="cg-t" x="${f(px + 102)}" y="${f(ly)}">${esc(t('cgDst'))}</text>`;
+  return { markup: `<g>${g}</g>`, X, Y, lo, hi, box: { px, py, pw, ph } };
+}
+
+/** "Today" on the chart: a vertical line and a dot on each curve. day: day of the year (fractions allowed). */
+export function correctionMarker(graph, day, solar, zone) {
+  const cx = graph.X(day), cl = (v) => Math.min(graph.hi, Math.max(graph.lo, v));
+  return `<path class="cg-today" d="M${f(cx)} ${f(graph.box.py)}V${f(graph.box.py + graph.box.ph)}"/>` +
+    `<circle class="cg-zone-dot" cx="${f(cx)}" cy="${f(graph.Y(cl(zone)))}" r="1.4"/><circle class="cg-solar-dot" cx="${f(cx)}" cy="${f(graph.Y(cl(solar)))}" r="1.4"/>`;
+}
+
+/** A print sheet with the correction chart and how to use it (sits on one A4 landscape page). */
+export function correctionSheet(dial, ctx) {
+  const { s, t } = ctx;
+  const W = 270, x = 10, gy = 28, gh = 108;
+  const data = yearCorrections(s.lon, s.tz, s.dst);
+  const g = correctionGraph(data, { x, y: gy, w: W - 2 * x, h: gh, t });
+  let inner = textLines(x, 14, [{ t: `${t('title')} — ${t('sheetCorr')}`, b: true }], 4.8);
+  inner += textLines(x, 21, [summaryLines(dial, ctx)[0]], 3.4);
+  inner += g.markup;
+  const notes = [t('cgHow'), t('cgLon', signed1(lonCorrection(s.lon, s.tz)))].flatMap((n) => wrapText(n, 130));
+  inner += textLines(x, gy + gh + 8, notes, 3.4);
+  const H = Math.ceil(gy + gh + 8 + notes.length * 3.4 * 1.45 + 4);
+  return { W, H, inner, css: '', name: 'correction', bw: s.ink === 'bw' };
 }
 
 // ---------------- Tiling ----------------

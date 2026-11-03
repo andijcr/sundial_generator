@@ -6,7 +6,8 @@ Design a **vertical declining wall sundial** for any latitude and wall orientati
 
 - interactive simulation of the shadow, live or at any chosen moment, with day/year animation and a 3D view;
 - explanation of the mathematics, with the numbers for your settings;
-- downloadable, dimensioned **SVG plans** in real millimetres: dial face, gnomon template, and a mounting/time-correction sheet, optionally split into A4/A3/A2 pages with registration marks.
+- a **time-correction chart** that shows what to add to the dial reading through the year, on the page (with a marker for the date being simulated) and as a printable sheet;
+- downloadable, dimensioned **SVG plans** in real millimetres: dial face, gnomon template, a mounting/time-correction sheet and the correction chart, optionally split into A4/A3/A2 pages with registration marks.
 
 Defaults: Rome (41.9028° N, 12.4964° E), wall facing south-west (D = 45°).
 
@@ -30,7 +31,9 @@ Every design choice is a checkbox, so you can compare options on the page:
 - *Margin:* set your printer's unprintable margin (default 8 mm; many printers manage 4–5 mm, which can save a whole row or column of pages). The slack is shared evenly between pages and each tile is centred, so no page is left with a sliver.
 - *Saving pages:* when the plan is only a few millimetres over what a row or column of pages holds, the page tells you how much narrower or lower the plate would have to be to save them.
 - *Colour or black & white:* black & white is an ink saver: no plate fill, everything black, and the line families (solar, zone time, Italian and Babylonian hours, azimuth, altitude) told apart by dash patterns instead of colour.
-- *Print all* sends the dial's pages, the gnomon template and the info sheet to the printer in one job; the gnomon template and the info sheet are sized to take one A4 page each, and each page asks for its own paper orientation.
+- *Print all* sends the dial's pages, the gnomon template, the info sheet and the correction chart to the printer in one job; the last three are sized to take one A4 page each, and each page asks for its own paper orientation.
+
+**Time-correction chart.** A dial that reads solar time needs a correction to show the clock time: the longitude offset from the time-zone meridian plus the equation of time, which swings between about −14 and +16 minutes through the year. The chart plots it against the date, one curve for the solar-time lines and one for the zone-time lines (which already include the longitude). Summer time is not folded into the curves, where a 60-minute step would flatten them; the months it is in force are marked, with "add 60 more minutes". The extremes are labelled with value and date. On the page a marker follows the simulated date and the line above the chart says what to add today. The table on the info sheet and the chart come from the same data, so they always agree.
 
 A "measure my wall" helper works out the wall declination from a shadow at a known time, or from a compass bearing.
 

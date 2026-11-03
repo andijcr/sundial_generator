@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { sunVector, DEG } from '../js/astro.js';
 import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
-import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup } from '../js/svg.js';
-import { fmtHM } from '../js/astro.js';
+import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
+import { fmtHM, yearCorrections, lonCorrection } from '../js/astro.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
@@ -543,4 +543,86 @@ test('a sheet that fits on one page takes the orientation that matches its shape
   const info = infoSheet(dial, c), gn = gnomonSheet(dial, c);
   assert.equal(tileLayout(info.W, info.H, 'A3', 10).orient, 'portrait');
   assert.equal(tileLayout(gn.W, gn.H, 'A3', 10).orient, 'landscape');
+});
+
+// ---- the correction chart ----
+
+const chartFor = (c = {}) => {
+  const { s } = sanitize({ ...DEFAULTS, ...c });
+  const t = makeT(s.lang), dial = buildDial(s, t), ctx = { s, t, place: 'x', dateStr: 'x' };
+  const data = yearCorrections(s.lon, s.tz, s.dst);
+  return { s, t, dial, ctx, data, g: correctionGraph(data, { x: 10, y: 28, w: 250, h: 108, t }) };
+};
+const numbers = (d) => [...d.matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((m) => [+m[1], +m[2]]);
+
+test('chart: the curves are the data, in plot coordinates, and the axis contains them with the zero line', () => {
+  for (const c of [{}, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lon: 12.4964, tz: 13 }, { lon: 15, tz: 1 }]) {
+    const { data, g } = chartFor(c);
+    const { px, py, pw, ph } = g.box;
+    assert.ok(g.lo < 0 && g.hi > 0 && g.lo % 5 === 0 && g.hi % 5 === 0, `axis ${g.lo}..${g.hi} contains zero, on whole steps`);
+    for (const d of data) for (const v of [d.solar, d.zone]) assert.ok(v > g.lo && v < g.hi, `${v} inside ${g.lo}..${g.hi}`);
+    // the map functions: zero is where the zero axis is drawn, and a day moves right
+    near(g.Y(0) , py + ph * (g.hi / (g.hi - g.lo)), 1e-9);
+    assert.ok(g.X(0) > px && g.X(364) < px + pw && g.X(100) > g.X(99));
+    assert.ok(g.Y(10) < g.Y(0), 'up is positive');
+    // the drawn polylines are exactly the data
+    const drawn = numbers(g.markup.match(/class="cg-solar" d="([^"]+)"/)[1]);
+    assert.equal(drawn.length, 365);
+    data.forEach((d, i) => { near(drawn[i][0], g.X(i), 0.006); near(drawn[i][1], g.Y(d.solar), 0.006); });
+    const zone = numbers(g.markup.match(/class="cg-zone" d="([^"]+)"/)[1]);
+    data.forEach((d, i) => near(zone[i][1], g.Y(d.zone), 0.006));
+  }
+});
+
+test('chart: summer-time bands match the spans, extremes are labelled with value and date', () => {
+  const bands = (g) => [...g.markup.matchAll(/<rect class="cg-dst" x="([\d.]+)" y="[\d.]+" width="([\d.]+)" height="[\d.]+"\/>/g)];
+  const rome = chartFor();
+  // one band in the plot plus one swatch in the legend
+  assert.equal(bands(rome.g).length, 2);
+  assert.equal(bands(chartFor({ lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }).g).length, 3, 'two bands wrap the new year, plus the legend swatch');
+  assert.equal(bands(chartFor({ dst: 'none' }).g).length, 0, 'no summer time: no band, no legend entry');
+  // the band spans the right days
+  const [x, w] = [+bands(rome.g)[0][1], +bands(rome.g)[0][2]];
+  const first = rome.data.findIndex((d) => d.dst), last = rome.data.length - 1 - [...rome.data].reverse().findIndex((d) => d.dst);
+  near(x, rome.g.box.px + (first / 365) * rome.g.box.pw, 0.01); near(x + w, rome.g.box.px + ((last + 1) / 365) * rome.g.box.pw, 0.02);
+  // labels: the zone-line maximum and minimum, with their dates
+  assert.match(rome.g.markup, /\+14\.2 · 11 Feb/); assert.match(rome.g.markup, /−16\.5 · 3 Nov/); assert.match(rome.g.markup, /\+24\.2 · 11 Feb/);
+  // when the curves coincide (longitude on the zone meridian) the labels are not doubled
+  const same = chartFor({ lon: 15, tz: 1 });
+  assert.equal((same.g.markup.match(/·/g) || []).length, 2, 'two labels, not four');
+});
+
+test('chart: the marker sits on the curves at the date, and stays inside the plot', () => {
+  const { data, g } = chartFor();
+  const m = correctionMarker(g, 100, data[100].solar, data[100].zone);
+  assert.match(m, new RegExp(`cx="${g.X(100).toFixed(2).replace(/\.?0+$/, '')}`));
+  assert.ok(m.includes(`cy="${(Math.round(g.Y(data[100].solar) * 100) / 100)}"`) && m.includes(`cy="${(Math.round(g.Y(data[100].zone) * 100) / 100)}"`));
+  const off = correctionMarker(g, 10, 500, -500); // a value far off the chart is pinned to its edge
+  assert.ok(off.includes(`cy="${Math.round(g.Y(g.hi) * 100) / 100}"`) && off.includes(`cy="${Math.round(g.Y(g.lo) * 100) / 100}"`));
+});
+
+test('chart sheet: one A4 landscape page in both languages, nothing broken, black and white without colour', () => {
+  const colours = /#(?!000\b|fff\b)[0-9a-fA-F]{3,6}\b/;
+  for (const lang of ['en', 'it']) for (const c of [{}, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lon: 12.5, tz: 13, dst: 'none' }]) {
+    const { s, t, dial, ctx } = chartFor({ lang, ...c });
+    const sh = correctionSheet(dial, ctx), svg = svgDoc(sh);
+    assert.ok(!/NaN|undefined|Infinity/.test(svg), `${lang} ${JSON.stringify(c)}`);
+    assert.equal(tileLayout(sh.W, sh.H, 'A4', 10).pages, 1, `fits one A4 page (${sh.W} x ${sh.H})`);
+    assert.ok(svg.includes(t('sheetCorr')) && svg.includes(t('cgY')));
+    const bw = svgDoc(correctionSheet(dial, { ...ctx, s: { ...s, ink: 'bw' } }));
+    assert.ok(!colours.test(bw), `no colour in black and white: ${(bw.match(colours) || [])[0]}`);
+  }
+  const { dial, ctx } = chartFor();
+  assert.ok(svgDoc(correctionSheet(dial, ctx)).includes('#f6e7bf'), 'the colour version shades summer time');
+});
+
+test('chart: signed text, the table and the chart agree, and the sheet says the longitude offset with a proper minus', () => {
+  const { s, t, dial, ctx, data } = chartFor({ lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 });
+  assert.ok(svgDoc(correctionSheet(dial, ctx)).includes(`−${Math.abs(lonCorrection(151.2, 10)).toFixed(1)} min`), 'a negative offset prints with −');
+  // the info sheet's table is built from the same data: its 1 Nov row has the chart's value for that day
+  const nov1 = data[304];
+  const info = svgDoc(infoSheet(dial, ctx));
+  assert.ok(info.includes(fmtMin(nov1.solar)) && info.includes(fmtMin(nov1.zone)) && info.includes(fmtMin(nov1.eot)));
+  // the page's chart uses the page's theme colours, the print chart fixed ones
+  assert.ok(graphCss(false, true).includes('var(--ink)') && !graphCss(false, false).includes('var('));
 });

@@ -114,6 +114,23 @@ export const DST_RULES = ['EU', 'US', 'AU', 'none'];
  */
 export const lonCorrection = (lon, tz) => -4 * norm180(lon - 15 * tz);
 
+/**
+ * The correction to apply through the (reference) year, one entry per day, noon UTC:
+ * minutes to add to a dial reading to get the standard (winter) clock time.
+ *   solar: reading of the apparent-solar-time lines = lonCorrection − EoT
+ *   zone:  reading of the zone-time lines           = −EoT
+ *   dst:   summer time is in force, so add 60 more minutes
+ * Used by the correction table and the correction chart, so they cannot disagree.
+ */
+export function yearCorrections(lon, tz, rule) {
+  const lc = lonCorrection(lon, tz), out = [];
+  for (let i = 0; i < 365; i++) {
+    const ms = dayMs(i), { eot } = solarParams(ms);
+    out.push({ i, eot, solar: lc - eot, zone: -eot, dst: rule !== 'none' && isDst(ms, tz, rule) });
+  }
+  return out;
+}
+
 /** Format minutes after midnight as HH:MM (wraps around 24 h, rounds to the minute). */
 export function fmtHM(min) {
   const m = ((Math.round(min) % 1440) + 1440) % 1440;

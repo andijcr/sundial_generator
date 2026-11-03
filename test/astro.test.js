@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { solarParams, sunAt, isDst, civilFromUtc, utcFromCivil, sunsetHourAngle, sunVector, lonCorrection } from '../js/astro.js';
+import { solarParams, sunAt, isDst, civilFromUtc, utcFromCivil, sunsetHourAngle, sunVector, lonCorrection, yearCorrections, dayMs } from '../js/astro.js';
 import { DEFAULTS, sanitize, buildDial } from '../js/state.js';
 import { infoSheet, svgDoc } from '../js/svg.js';
 import { makeT } from '../js/i18n.js';
@@ -94,4 +94,36 @@ test('the info sheet at the date line has no multi-hour corrections', () => {
   const t = makeT('en');
   const svg = svgDoc(infoSheet(buildDial(s, t), { s, t, place: 'Apia', dateStr: 'x' }));
   assert.ok(!/[+−]\d{3,} m/.test(svg), 'no three-digit minute values in the correction table');
+});
+
+// ---- the correction through the year (the data behind the table and the chart) ----
+
+const spans = (data) => { const r = []; data.forEach((d, i) => { if (d.dst) { const l = r[r.length - 1]; if (l && l[1] === i - 1) l[1] = i; else r.push([i, i]); } }); return r; };
+
+test('yearCorrections: solar lines = longitude − EoT, zone lines = −EoT, one entry per day', () => {
+  const rome = yearCorrections(12.4964, 1, 'EU'), lc = lonCorrection(12.4964, 1);
+  assert.equal(rome.length, 365);
+  rome.forEach((d, i) => {
+    assert.equal(d.i, i);
+    near(d.eot, solarParams(dayMs(i)).eot, 1e-12);
+    near(d.solar, lc - d.eot, 1e-12); near(d.zone, -d.eot, 1e-12);
+  });
+  const zone = rome.map((d) => d.zone);
+  near(Math.max(...zone), 14.2, 0.2, 'mid-February: the sun is 14 min slow, so add 14 min');
+  near(Math.min(...zone), -16.5, 0.2, 'early November: the sun is 16.5 min fast, so subtract 16.5');
+  const when = new Date(dayMs(rome.findIndex((d) => d.zone === Math.min(...zone))));
+  assert.deepEqual([when.getUTCMonth(), when.getUTCDate()], [10, 3], 'the minimum falls on 3 November');
+});
+
+test('yearCorrections: summer time spans, including the southern ones that wrap the new year', () => {
+  const rome = spans(yearCorrections(12.4964, 1, 'EU'));
+  assert.equal(rome.length, 1);
+  assert.ok(rome[0][0] >= 85 && rome[0][0] <= 88, `starts late March: ${rome[0]}`);
+  assert.ok(rome[0][1] >= 301 && rome[0][1] <= 304, `ends late October: ${rome[0]}`);
+  const sydney = spans(yearCorrections(151.2, 10, 'AU'));
+  assert.equal(sydney.length, 2, 'Jan to early April, and October to December');
+  assert.equal(sydney[0][0], 0); assert.equal(sydney[1][1], 364);
+  assert.ok(sydney[0][1] >= 90 && sydney[0][1] <= 94 && sydney[1][0] >= 273 && sydney[1][0] <= 277, JSON.stringify(sydney));
+  assert.equal(spans(yearCorrections(12.4964, 1, 'none')).length, 0);
+  assert.equal(spans(yearCorrections(-74, -5, 'US')).length, 1);
 });
