@@ -215,3 +215,75 @@ Pages. No npm install required to run; `node --test` for the maths tests.
 Milestones 1-7 are done. Known gaps and ideas: during animation the trail and
 3D view are redrawn in full every frame; with every option on, some labels at
 the foot of the figure-8s overlap; adjustable blade height; pinhole nodus.
+
+## 5. Later: gnomon width (thickness) and the build
+
+Not implemented; notes for a future change. "Width" here is the thickness of whatever casts the
+shadow: the plate of the polar style, the blade, the rod (diameter) or a bead.
+
+### 5.1 What the maths assumes
+Every line on the dial assumes an ideal gnomon (a zero-thickness style edge, a point nodus) and a
+point sun. A real one has thickness t, and the sun is a disc 0.533° wide. Both blur the shadow's
+edge, and a thick plate can also be read on the wrong edge.
+
+### 5.2 How much it matters (default dial: Rome, SW wall, L = 73 mm, SH 31.75°)
+Computed with the dial code (move the script into `dial.js` as a tested function when this is built).
+
+**Sideways error of the shadow edge**, e = 1.5 mm (a 3 mm plate read on one edge instead of its
+centre). Time error in minutes, at a distance r from the style root along the hour line:
+
+| hour line | r = 50 mm | 100 mm | 200 mm | 400 mm |
+|---|---|---|---|---|
+| 11:00 | 4.7 | 2.3 | 1.2 | 0.6 |
+| 13:00 | 9.1 | 4.5 | 2.3 | 1.1 |
+| 15:00 | 12.0 | 6.4 | 3.2 | 1.6 |
+| 17:00 | 11.9 | 6.0 | 3.0 | 1.5 |
+
+The error scales as 1/r (and linearly with e): read the time **far from the root**, where the hour
+lines fan out. Near the root a fraction of a millimetre is minutes.
+
+**The sun's disc.** 0.533° is 2.1 min of hour angle, so no dial reads better than about ±1 min
+without a pinhole. The penumbra on the wall is the ray length (L / s·n) × 0.0093: 0.7 mm with the
+sun square on, 1.4 mm 30° off the wall plane, 2.6 mm at 15°. As a time error (half the blur) on the
+15:00 line at s·n = 0.5: ±2.9 min at r = 100 mm, ±1.4 min at 200 mm, ±0.7 min at 400 mm.
+
+So a thickness under about 0.5 mm disappears into the penumbra, and above about 1.5 mm it dominates.
+
+### 5.3 Where the width enters the build
+1. **Polar style (plate).** The shadow of a plate t thick is a band t wide, centred on the ideal
+   hour line. Reading its centre is exact; reading an edge is off by t/2 (table above). The lit
+   face flips when the sun crosses the plate's plane (the substyle hour, 15:45 here), so no single
+   offset of the printed lines can compensate on both sides of it. Remedies: a knife edge (bevel
+   the sun-facing style edge on both faces, about 2 t deep for a 30° included angle), or t ≤ 1 mm.
+   Read the shadow of the *sloping* style edge (the line R–S), not of the plate's base.
+   The plate's **mid-plane**, not its face or its fold line, must lie on the substyle line R–F. A
+   tab folded to one side puts the mid-plane t/2 (plus the bend radius) from the fold, which the
+   template should state.
+2. **Rod and blade (tip only).** Thickness smears the tip's shadow into a segment t long (for the
+   blade along the wall's horizontal, which is the hour direction). A flat-cut rod end is read at
+   its edge, up to d/2 off its axis. Remedies: taper the blade to a point; use a bead whose
+   *centre* is at distance L (so the rod to the bead centre is L, not L + d/2); or a pinhole plate,
+   where the centre of the sun's image is the ideal point and the spot is about
+   hole + 0.0093 × ray length across.
+3. **Where L is measured from** is the dial's surface (tile, render), not the wall behind it:
+   the thickness of the dial panel moves the nodus.
+4. **Stiffness.** The free sloping edge of a thin plate flexes and moves the line by more than its
+   thickness does. As a rule of thumb (judgement, not computed) use ≥ 2 mm or a brace for a style
+   longer than about 200 mm. The template could show the brace.
+5. **Process.** Laser kerf (about 0.1–0.3 mm) makes parts slightly small, and bending adds an
+   allowance. Dial lines should not be wider than the shadow band, so its centre stays readable
+   (the bold "tile" style goes with thick plates).
+
+### 5.4 Proposed changes
+- A thickness setting `gT` (mm; 0 = ideal, today's behaviour), bounded. Warn when the half-thickness
+  error at the nearest sensible reading distance would exceed about 2 min.
+- Simulation: draw the shadow band with its real width plus the penumbra, and show "reading
+  uncertainty ± x min" for the current shadow position. It teaches the "read far from the root" rule.
+- Templates: thickness dimension, bevel annotation and depth, the fold tab's mid-plane offset, a
+  tapered blade tip, and bead and pinhole variants with the right lengths.
+- Info sheet: a tolerance list for this dial (nodus within ± x mm of L, style angle within ± y°),
+  with x and y computed from the model.
+- New tip types for the tip-only gnomons: pointed blade, bead, pinhole plate.
+- Tests: the offset-to-minutes figure from the model; thickness 0 reproduces today's output exactly.
+- Open questions: which sheet thicknesses and materials will actually be used; whether to model
+  the penumbra as a ± or as a band; whether the bead and pinhole options are wanted at all.
