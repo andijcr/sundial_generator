@@ -81,6 +81,13 @@ export function sanitize(input) {
 
 const r2 = (x, q) => Math.round(x / q) * q;
 
+/**
+ * Summer time is a clock concept, so the "+1 h" labels only go on lines that read
+ * clock time: the zone-time hour lines and the zone-time figure-8s. On the
+ * solar-time lines (and the local-mean-noon figure-8) they would be meaningless.
+ */
+export const dstLabelsApply = (s) => !!(s.hZone || s.anaZoneNoon || s.anaHours);
+
 /** URL-hash form of the state: only values that differ from the defaults. */
 export function serializeState(s) {
   const p = new URLSearchParams();
