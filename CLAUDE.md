@@ -38,8 +38,13 @@ Unit tests do not catch overlapping or misplaced labels. Render the sheets and t
 - Do not use `pkill -f <pattern>` in the shell tool: it can match its own shell. Kill by port or pid.
 - Options that only matter alongside others must not be silent no-ops: disable the control in `writeControls` (`app.js`) and say why in its label (`hExtend` needs `gPolar`; `hDstLabels` needs zone-time lines or figure-8s, see `dstLabelsApply` in `state.js`).
 - Auto-fit ignores sun within `grazing` degrees of the wall plane, so late-morning/low sun shadows can fall off the plate by design.
+- To undo an experiment (a mutation check, say), copy the file aside and copy it back. `git checkout <file>` also throws away your uncommitted edits to it, which once cost a rewrite.
+- `git fetch` can stall behind the proxy: run it as `timeout 90 git fetch origin <branch>`, kill a hung one by pid, and retry.
 
 ## Workflow
-- Default branch `main`. Work on a feature branch and open a PR; never push to `main` directly.
+- Default branch `main`. Work on a feature branch (`claude/<topic>`; creating and pushing these works) and open a PR; never push to `main` directly. Check that the repo has pull requests switched on if creating one fails.
+- The live site is https://andijcr.github.io/sundial_generator/ (plans in `/plans/`). `.github/workflows/pages.yml` runs the tests and deploys `_site/` on every push to `main`, so a merge is online within a minute; check the run before saying it is live.
 - `.github/workflows/preview.yml` runs the tests and uploads the site plus sample plans as an artifact on every PR.
-- `.github/workflows/pages.yml` deploys `_site/` to GitHub Pages on every push to `main` (Settings → Pages → Source: GitHub Actions).
+- PRs are **squash-merged**, so `main` stays linear. Wait for the `build` check on the current head before merging.
+- **Stacked PRs** (each depends on the previous): base a PR on the previous branch, merge them in order, and after each squash merge retarget the next PR to `main` (`base`). A squash leaves copies of the lower commits on `main` that clash with the originals still in the stacked branch, so the next PR can report a conflict. When `git diff origin/main <previous branch tip>` is empty (nothing on `main` that the branch lacks), `git merge -s ours origin/main` on the branch and a normal push fixes it, and the diff shows only the PR's own change again. Unpushed branches above a merged one are replayed with `git rebase --onto origin/main <old base tip> <branch>`, with the tests rerun on each.
+- A PR description ends with the attribution lines the session gives; each commit ends with its `Co-Authored-By` and `Claude-Session` trailers.

@@ -1,5 +1,7 @@
 # Wall sundial generator
 
+**Live page: https://andijcr.github.io/sundial_generator/** (pre-rendered sample plans: [`plans/`](https://andijcr.github.io/sundial_generator/plans/))
+
 Design a **vertical declining wall sundial** for any latitude and wall orientation:
 
 - interactive simulation of the shadow, live or at any chosen moment, with day/year animation and a 3D view;
@@ -67,8 +69,8 @@ Every pull request runs `.github/workflows/preview.yml`. It runs the tests, buil
 
 ## Publishing
 
-`.github/workflows/pages.yml` deploys `_site/` to GitHub Pages on every push to `main`. One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site is then served at `https://<user>.github.io/sundial_generator/`.
+The page is live at https://andijcr.github.io/sundial_generator/. `.github/workflows/pages.yml` runs the tests and deploys `_site/` (the page plus the sample plans) to GitHub Pages on every push to `main`, so a merged PR is online about half a minute later. Set up once under **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
-Copying into a separate `<user>.github.io` repo is not needed: project sites are already served under that domain.
+Copying into a separate `andijcr.github.io` repo is not needed: project sites are already served under that domain, and a link from a homepage is enough.
 
 The site is fully static with relative paths, so copying `_site/` (or `index.html`, `css/`, `js/`) into any folder also works.
