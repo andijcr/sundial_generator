@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG, norm180 } from '../js/astro.js';
-import { wallClockHourAngle, wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
+import { wallClockHourAngle, wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT, dialFrame, PLANES } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt, sunAt, utcFromCivil, REF_YEAR, dayOfYear } from '../js/astro.js';
@@ -129,6 +129,9 @@ test('sheets render for many configurations without NaN', () => {
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
     { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { anaClock: true, dTicks10: true }, { anaClock: true, dTicks10: true, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { anaClock: true, gRod: false, gBlade: true }, { hTen: true, hZone: true, hQuarter: true }, { anaClock: true, dTicks10: true, material: 'laser', plateW: 200, plateH: 150 }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
+    { plane: 'horizontal' }, { plane: 'horizontal', lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', anaHours: true, hZone: true },
+    { plane: 'horizontal', material: 'laser', gBlade: true, plateW: 200, plateH: 150 }, { plane: 'horizontal', anaClock: true, dTicks10: true, rodX: 3 },
+    { plane: 'horizontal', lat: 5, faceBrief: true }, { plane: 'horizontal', lat: -60, gPolar: false, xItalian: true, xAzimuth: true, dZodiac: true },
   ];
   for (const c of configs) {
     const { s } = sanitize({ ...DEFAULTS, ...c });
@@ -1267,4 +1270,44 @@ test('wall-clock 8s: every piece is numbered (winter end, both sides of each jum
   // the other figure-8s are as before: no summer layers, numbers only at the summer end
   const other = buildDial(sanitize({ ...DEFAULTS, anaHours: true }).s, t);
   assert.ok(!other.layers.some((l) => /^ana[RF]s$/.test(l.id)), 'no summer layers without the wall-clock 8s');
+});
+
+test('horizontal dial: frame, hour lines tan θ = sin φ tan H, style root, angles, and wall dials unchanged', () => {
+  const fr = dialFrame(45, 'horizontal');
+  assert.deepEqual(fr, { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] }, 'up, east, north');
+  assert.deepEqual(dialFrame(30), wallFrame(30), 'a wall by default');
+  assert.deepEqual(PLANES, ['wall', 'horizontal']);
+  for (const lat of [41.9, -33.87, 60]) {
+    // equinox: the shadow line of the nodus is straight, and every hour line runs through the root
+    for (const H of [-60, -30, 30, 45, 75]) {
+      const P = shadowPoint(sunVector(0, H, lat), 50, fr), R = styleRoot(lat, 50, fr);
+      const th = Math.atan2(P[0] - R[0], Math.abs(P[1] - R[1])) / DEG;
+      near(Math.abs(Math.tan(th * DEG)), Math.abs(sin(lat) * tan(H)), 1e-9, `hour line at lat ${lat}, H ${H}`);
+      // the afternoon sun is in the west in both hemispheres, so the shadow falls east of the meridian
+      assert.ok(Math.sign(P[0]) === (H > 0 ? 1 : -1), 'afternoon shadow to the east');
+    }
+    near(styleRoot(lat, 50, fr)[1], -50 / tan(lat), 1e-9, 'root on the meridian, L / tan φ towards the equator');
+    near(styleRoot(lat, 50, fr)[0], 0, 1e-12);
+    // noon: the shadow lies on the meridian, pointing away from the sun
+    const N = shadowPoint(sunVector(10, 0, lat), 50, fr);
+    near(N[0], 0, 1e-9); assert.ok(Math.sign(N[1]) === Math.sign(lat), 'noon shadow towards the pole');
+    assert.deepEqual(dialAngles(lat, 45, 'horizontal'), { SH: Math.abs(lat), SD: 0, DL: 0 });
+  }
+  // the sheets: the plate's wording, the N arrow, no wall direction; the URL keeps the plane; the wall dial is the same as before
+  const t = makeT('en'), { s } = sanitize({ ...DEFAULTS, plane: 'horizontal' }), dial = buildDial(s, t);
+  assert.ok(!dial.warnings.some((w) => w[0] === 'eastWest'));
+  const face = svgDoc(faceSheet(dial, { s, t, place: 'Roma', dateStr: 'x' }));
+  assert.ok(face.includes(esc(t('plumbH'))) && !face.includes(esc(t('plumb'))), 'meridian, not plumb line');
+  assert.ok(face.includes(esc(t('planeHShort'))) && !/D = 45\.0°/.test(face), 'no wall direction');
+  const info = svgDoc(infoSheet(dial, { s, t, place: 'Roma', dateStr: 'x' }));
+  assert.ok(info.includes(esc(t('stepsH')[2]).slice(0, 40)), 'orientation step');
+  const gn = svgDoc(gnomonSheet(dial, { s, t, place: 'Roma', dateStr: 'x' }));
+  assert.ok(gn.includes(esc(t('rodEmbedH')).slice(0, 10)), 'rod goes into the plate');
+  assert.equal(sanitize({ ...DEFAULTS, plane: 'sideways' }).s.plane, 'wall');
+  assert.match(serializeState(s), /plane=horizontal/);
+  assert.ok(!serializeState(sanitize({ ...DEFAULTS }).s).includes('plane'));
+  const w = buildDial(sanitize({ ...DEFAULTS }).s, t), w2 = buildDial(sanitize({ ...DEFAULTS, plane: 'wall' }).s, t);
+  assert.equal(svgDoc(faceSheet(w, { s: sanitize({ ...DEFAULTS }).s, t })), svgDoc(faceSheet(w2, { s: sanitize({ ...DEFAULTS }).s, t })));
+  // every string with a plate variant exists in both languages
+  for (const k of Object.keys(STRINGS.en).filter((k) => /H$/.test(k) && k.slice(0, -1) in STRINGS.en)) assert.ok(k in STRINGS.it, k);
 });

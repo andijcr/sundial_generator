@@ -75,6 +75,18 @@ export function wallFrame(D) {
   return { n: [-s, -c, 0], u: [c, -s, 0], v: [0, 0, 1] };
 }
 
+/** The dial planes offered: a vertical wall (with its declination D) or a horizontal plate (a garden dial). */
+export const PLANES = ['wall', 'horizontal'];
+
+/**
+ * Frame of the dial plane. A wall: wallFrame(D). A horizontal plate lies flat with its top edge pointing to true north: n up,
+ * u east (to the right as you stand south of it, looking north), v north (towards the top edge). The user orients it so;
+ * D plays no part. Every mark goes through shadowPoint with this frame, so nothing else needs to know which plane it is.
+ */
+export function dialFrame(D, plane = 'wall') {
+  return plane === 'horizontal' ? { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] } : wallFrame(D);
+}
+
 /**
  * The vertical blade gnomon is a flat fin standing in the plane that holds the
  * wall normal and the vertical. Its lower edge runs from the foot F out to the
@@ -93,15 +105,15 @@ export function poleAxis(lat) {
 
 /**
  * Shadow of the nodus for sun direction s: intersection of the ray from the
- * nodus (L·n) along −s with the wall plane. Returns [x, y] or null when the
- * sun is behind the wall or below the horizon.
+ * nodus (L·n) along −s with the dial plane, in the plane's own axes (u, v).
+ * Returns [x, y] or null when the sun is behind the plane or below the horizon.
  *   P = L·n − (L / (s·n))·s
  */
 export function shadowPoint(s, L, fr) {
   const sn = dot(s, fr.n);
   if (sn <= 1e-9 || s[2] <= 0) return null;
   const k = L / sn;
-  return [-k * dot(s, fr.u), -k * s[2]];
+  return [-k * dot(s, fr.u), -k * dot(s, fr.v)];
 }
 
 /** Root of the polar style: where the line through the nodus parallel to the
@@ -111,11 +123,15 @@ export function styleRoot(lat, L, fr) {
   const pn = dot(p, fr.n);
   if (Math.abs(pn) < 0.02) return null;
   const k = L / pn;
-  return [-k * dot(p, fr.u), -k * p[2]];
+  return [-k * dot(p, fr.u), -k * dot(p, fr.v)];
 }
 
-/** Classical dialling angles of a vertical declining dial (degrees). */
-export function dialAngles(lat, D) {
+/**
+ * Classical dialling angles (degrees). A vertical declining dial: style height, substyle from the vertical, longitude
+ * difference. A horizontal dial: the style rises at the latitude along the meridian, so SH = |latitude|, SD = DL = 0.
+ */
+export function dialAngles(lat, D, plane = 'wall') {
+  if (plane === 'horizontal') return { SH: Math.abs(lat), SD: 0, DL: 0 };
   const fr = wallFrame(D);
   const p = poleAxis(lat);
   const pn = dot(p, fr.n);
@@ -228,8 +244,8 @@ const ROMAN = ['XXIV', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', '
  * nodus shadows over the year while the sun is at least `grazing` degrees
  * off the wall plane and 2° above the horizon. Used for auto-fitting.
  */
-export function coreBBox(lat, D, grazing, includeRoot, extraTop = 0) {
-  const fr = wallFrame(D);
+export function coreBBox(lat, D, grazing, includeRoot, extraTop = 0, plane = 'wall') {
+  const fr = dialFrame(D, plane);
   const { min, max } = declLimits();
   const sg = Math.sin(grazing * DEG), sa = Math.sin(2 * DEG);
   let x0 = 0, x1 = 0, y0 = 0, y1 = 0, n = 0;
@@ -265,9 +281,9 @@ export const L_MIN = 2, L_MAX = 3000;
  * that happened (else null); `clamped` says L was held to L_MIN..L_MAX; `empty` means there is no sun even at
  * 1° (a wall the sun never reaches), where a modest size is chosen.
  */
-export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0, extraTop = 0) {
-  let g = grazing, b = coreBBox(lat, D, g, includeRoot, extraTop);
-  while (b.n === 0 && g > 1) { g = Math.max(1, g - 3); b = coreBBox(lat, D, g, includeRoot, extraTop); }
+export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0, extraTop = 0, plane = 'wall') {
+  let g = grazing, b = coreBBox(lat, D, g, includeRoot, extraTop, plane);
+  while (b.n === 0 && g > 1) { g = Math.max(1, g - 3); b = coreBBox(lat, D, g, includeRoot, extraTop, plane); }
   const empty = b.n === 0;
   const bw = Math.max(b.x1 - b.x0, 0.05), bh = Math.max(b.y1 - b.y0, 0.05);
   const m = plate.margin;
@@ -328,8 +344,8 @@ export function sunState(s, fr, hz = [], grazing = 0) {
  * `stepDays` days, one cell every `stepMin` minutes, each a SUN state. Hour angle from the clock:
  * hourAngleAtClock (astro.js). litH: hours of sun on the wall that day (grazing included); avgOpen: the average with an open horizon.
  */
-export function sunlightGrid(lat, lon, tz, D, hz = [], grazing = 0, stepDays = 2, stepMin = 10) {
-  const fr = wallFrame(D), Y = yearTable(), n = Math.round(1440 / stepMin);
+export function sunlightGrid(lat, lon, tz, D, hz = [], grazing = 0, stepDays = 2, stepMin = 10, plane = 'wall') {
+  const fr = dialFrame(D, plane), Y = yearTable(), n = Math.round(1440 / stepMin);
   const cols = [];
   let open = 0; // cells that would be lit with an open horizon (lit, grazing or hidden)
   for (let i = 0; i < Y.length; i += stepDays) {
@@ -348,8 +364,8 @@ export function sunlightGrid(lat, lon, tz, D, hz = [], grazing = 0, stepDays = 2
 }
 
 /** Hours of sun on the wall (above the horizon profile hz, if any), averaged per day over the year, and daylight hours. */
-export function sunStats(lat, D, hz = []) {
-  const fr = wallFrame(D);
+export function sunStats(lat, D, hz = [], plane = 'wall') {
+  const fr = dialFrame(D, plane);
   const Y = yearTable();
   let lit = 0, day = 0, days = 0;
   for (let i = 0; i < Y.length; i += 5) {
@@ -418,9 +434,9 @@ export function placeLabels(labels, clip, fs) {
 export function computeDial(cfg) {
   const { lat, lon, tz, D, L, plate: P, opts: o, t } = cfg;
   const fs = cfg.fontSize;
-  const fr = wallFrame(D);
+  const plane = cfg.plane || 'wall', fr = dialFrame(D, plane);
   const root = styleRoot(lat, L, fr);
-  const angles = dialAngles(lat, D);
+  const angles = dialAngles(lat, D, plane);
   const m = P.margin;
   const clip = { x0: -P.fx + m, x1: P.w - P.fx - m, y0: P.fy - P.h + m + (cfg.bottomReserve || 0), y1: P.fy - m };
   const lim = 40 * Math.max(P.w, P.h);
@@ -792,15 +808,15 @@ export function computeDial(cfg) {
 
   // ---------- Warnings & stats ----------
   const warnings = [];
-  const stats = sunStats(lat, D, cfg.horizon || []);
+  const stats = sunStats(lat, D, cfg.horizon || [], plane);
   if (Math.abs(lat) < 10) warnings.push(['nearEquator']);
   // these two only concern the triangular polar style
   if (o.gPolar && !root) warnings.push(['polarParallel']);
   else if (o.gPolar && Math.hypot(root[0], root[1]) > 4 * L) warnings.push(['rootFar', (Math.hypot(root[0], root[1]) / L).toFixed(1)]);
-  if (Math.abs(Math.abs(D) - 90) < 12) warnings.push(['eastWest']);
+  if (plane === 'wall' && Math.abs(Math.abs(D) - 90) < 12) warnings.push(['eastWest']); // a wall's direction only
   if (stats.litPerDay < 0.05) warnings.push(['noSun']);
   else if (stats.litPerDay < 3) warnings.push(['littleSun', stats.litPerDay.toFixed(1)]);
-  const b = coreBBox(lat, D, cfg.grazing || 8, false);
+  const b = coreBBox(lat, D, cfg.grazing || 8, false, 0, plane);
   if (b.n && (b.x0 * L < clip.x0 - 1 || b.x1 * L > clip.x1 + 1 || b.y0 * L < clip.y0 - 1 || b.y1 * L > clip.y1 + 1)) warnings.push(['clipped']);
   if (root && (root[0] < clip.x0 - m || root[0] > clip.x1 + m || root[1] < clip.y0 - m || root[1] > clip.y1 + m) && o.gPolar) warnings.push(['rootOutside']);
 

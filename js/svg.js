@@ -5,9 +5,11 @@
 
 import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections } from './astro.js';
 import { absoluteDeclination, clockOn } from './dial.js';
-import { makeT } from './i18n.js';
+import { makeT, STRINGS } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
+/** A translator that, for a horizontal dial, uses the plate's wording (key + 'H') where there is one instead of the wall's. */
+export const planeT = (s, t) => (s.plane === 'horizontal' ? (k, ...a) => t(Object.hasOwn(STRINGS.en, k + 'H') ? k + 'H' : k, ...a) : t);
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
@@ -157,7 +159,7 @@ export function dialMarkup(dial, ctx) {
   }
   const yb = P.h - P.margin - fs * 0.6;
   if (s.xInfo) {
-    const txt = `${Math.abs(s.lat).toFixed(2)}°${s.lat >= 0 ? 'N' : 'S'} ${Math.abs(s.lon).toFixed(2)}°${s.lon >= 0 ? 'E' : 'W'} · D ${s.D.toFixed(1)}° · L ${dial.L.toFixed(0)} mm`;
+    const txt = `${Math.abs(s.lat).toFixed(2)}°${s.lat >= 0 ? 'N' : 'S'} ${Math.abs(s.lon).toFixed(2)}°${s.lon >= 0 ? 'E' : 'W'}${s.plane === 'horizontal' ? '' : ` · D ${s.D.toFixed(1)}°`} · L ${dial.L.toFixed(0)} mm`;
     out += `<text class="info" x="${f(P.margin + fs * 0.2)}" y="${f(yb)}" font-size="${f(fs * 0.5)}" dominant-baseline="central">${esc(txt)}</text>`;
   }
   if (s.motto) {
@@ -184,7 +186,9 @@ export function frontViewSvg(dial, ctx) {
   if (ctx.s.gRod || ctx.s.gBlade) g += `<circle cx="${f(P.fx)}" cy="${f(P.fy)}" r="${f(dial.fontSize * 0.35)}" fill="#2b2b2b"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(-pad)} ${f(-pad)} ${f(P.w + 2 * pad)} ${f(P.h + 2 * pad)}" role="img" aria-label="${esc(ctx.t ? ctx.t('v2d') : 'Front view')}">
 <style>${dialCss(ctx.s.material === 'laser' ? 'paper' : ctx.s.material, sw)}</style>
-<defs><pattern id="bricks" width="60" height="30" patternUnits="userSpaceOnUse"><rect width="60" height="30" fill="#d9c7a7"/><path d="M0 0H60M0 15H60M30 0V15M0 15V30M60 15V30" stroke="#c7b28e" stroke-width="1"/></pattern>
+<defs>${ctx.s.plane === 'horizontal'
+    ? '<pattern id="bricks" width="80" height="80" patternUnits="userSpaceOnUse"><rect width="80" height="80" fill="#cfcabd"/><path d="M0 0H80M0 40H80M0 0V80M40 0V40M20 40V80M60 40V80" stroke="#b8b2a3" stroke-width="1.2"/></pattern>'
+    : '<pattern id="bricks" width="60" height="30" patternUnits="userSpaceOnUse"><rect width="60" height="30" fill="#d9c7a7"/><path d="M0 0H60M0 15H60M30 0V15M0 15V30M60 15V30" stroke="#c7b28e" stroke-width="1"/></pattern>'}
 <clipPath id="wallclip"><rect x="${f(-pad)}" y="${f(-pad)}" width="${f(P.w + 2 * pad)}" height="${f(P.h + 2 * pad)}"/></clipPath></defs>
 <rect x="${f(-pad)}" y="${f(-pad)}" width="${f(P.w + 2 * pad)}" height="${f(P.h + 2 * pad)}" fill="url(#bricks)"/>
 <g>${dialMarkup(dial, ctx)}</g>
@@ -284,7 +288,7 @@ function summaryLines(dial, ctx) {
     : [s.hSolar && t('hSolar'), s.hZone && t('hZone'), s.anaMeanNoon && t('anaMeanNoon'), (s.anaZoneNoon || s.anaHours) && (s.anaHours ? t('anaHours') : t('anaZoneNoon'))]).filter(Boolean).join(' · ');
   return [
     `${ctx.place ? ctx.place + ' — ' : ''}${latLon(s)}, UTC${s.tz >= 0 ? '+' : ''}${s.tz} (${s.dst})`,
-    `D = ${s.D.toFixed(1)}° ${t('dRef')} (${t('faces')} ${((180 + absoluteDeclination(s.lat, s.D) + 360) % 360).toFixed(1)}° N→E) · L = ${mm(dial.L)} · ${mm1(dial.plate.w)} × ${mm1(dial.plate.h)} mm`,
+    `${s.plane === 'horizontal' ? t('planeHShort') : `D = ${s.D.toFixed(1)}° ${t('dRef')} (${t('faces')} ${((180 + absoluteDeclination(s.lat, s.D) + 360) % 360).toFixed(1)}° N→E)`} · L = ${mm(dial.L)} · ${mm1(dial.plate.w)} × ${mm1(dial.plate.h)} mm`,
     `${t('SH')} ${a.SH.toFixed(2)}° · ${t('SD')} ${a.SD.toFixed(2)}° · ${t('DL')} ${a.DL.toFixed(2)}°`,
     systems,
   ];
@@ -321,7 +325,7 @@ const mm1 = (x) => String(+x.toFixed(1)); // 600, or 600.4 for a plate typed to 
 function briefLines(dial, s, t) {
   const P = dial.plate;
   return [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
-    `${latLon(s)} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)} · ${mm1(P.w)} × ${mm1(P.h)} mm`,
+    `${latLon(s)} · ${s.plane === 'horizontal' ? t('planeHShort') : `D = ${s.D.toFixed(1)}°`} · L = ${mm(dial.L)} · ${mm1(P.w)} × ${mm1(P.h)} mm`,
     ...platePos(dial, s, t)];
 }
 /** ["F: x mm from the left edge, y mm from the top", "R: …"]: where the foot and the style root are on the plate. */
@@ -371,7 +375,7 @@ export function faceSheetSize(dial, s) {
 }
 
 export function faceSheet(dial, ctx) {
-  const { s, t } = ctx;
+  const { s } = ctx, t = planeT(s, ctx.t);
   const P = dial.plate;
   const { sw } = sizesFor(s.material, P);
   const { L: ML, T: MT, R: MR, B: MB, barBelow, key, caption } = faceMargins(dial, s);
@@ -379,8 +383,13 @@ export function faceSheet(dial, ctx) {
   let g = dialMarkup(dial, ctx);
   if (s.material !== 'laser') {
     g += `<path class="l-construct" d="M${f(P.fx)} 0V${f(P.h)}"/>`;
-    g += `<text class="dt" x="${f(P.fx + 2.5)}" y="${f(P.h * 0.04 + 10)}" transform="rotate(-90 ${f(P.fx + 2.5)} ${f(P.h * 0.04 + 10)})" style="text-anchor:end">${esc(t('plumb'))}</text>`;
+    // the line's label reads upwards near the top of it; when the style root sits there, it goes to the bottom instead
+    const lbl = t('plumb'), len = lbl.length * 1.95, top = P.h * 0.04 + 10, ry = dial.root && s.gPolar ? P.fy - dial.root[1] : -1e9;
+    const low = ry > top - 6 && ry < top + len + 6, ly = low ? P.h - P.h * 0.04 - 10 : top;
+    g += `<text class="dt" x="${f(P.fx + 2.5)}" y="${f(ly)}" transform="rotate(-90 ${f(P.fx + 2.5)} ${f(ly)})" style="text-anchor:${low ? 'start' : 'end'}">${esc(lbl)}</text>`;
     g += `<text class="dt" x="${f(P.fx - 3)}" y="${f(P.fy - 3)}" style="text-anchor:end">F</text>`;
+    // a horizontal dial: the top edge points to true north, and the meridian through F says so
+    if (s.plane === 'horizontal') g += `<path class="mark" d="M${f(P.fx)} ${f(2)}l-2.5 6h5z"/><text class="dt" x="${f(P.fx + 4)}" y="${f(7)}" style="text-anchor:start;font-weight:bold">N</text>`;
   }
   // dimensions, close to the plate (the short caption gives the positions in words instead)
   if (!s.faceBrief) {
@@ -423,7 +432,7 @@ export function faceSheet(dial, ctx) {
 }
 
 export function gnomonSheet(dial, ctx) {
-  const { s, t } = ctx;
+  const { s } = ctx, t = planeT(s, ctx.t);
   const L = dial.L, M = 14, TAB = 15, laser = s.material === 'laser';
   let inner = '', H = 0;
   let right = M + 150; // right edge of the drawing (estimated), so the sheet is no wider than needed; 150 mm for the summary lines
@@ -619,7 +628,7 @@ export const fmtMin = (m) => {
 };
 
 export function infoSheet(dial, ctx) {
-  const { s, t } = ctx;
+  const { s } = ctx, t = planeT(s, ctx.t);
   const W = 186, x = 10; // fits an A4 page inside a printer margin of up to 12 mm; the height follows the content
   let y = 14;
   let inner = textLines(x, y, [{ t: `${t('title')} — ${t('sheetInfo')}`, b: true }], 4.8);

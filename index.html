@@ -43,6 +43,8 @@
 
     <details open>
       <summary data-i18n="secWall"></summary>
+      <label><span data-i18n="plane"></span>
+        <select data-k="plane"><option value="wall" data-i18n="planeWall"></option><option value="horizontal" data-i18n="planeHorizontal"></option></select></label>
       <label><span data-i18n="wallPreset"></span><select id="wallPreset"></select></label>
       <label><span data-i18n="wallDecl"></span>
         <span class="pair"><input type="range" data-k="D" min="-180" max="180" step="0.5"><input type="number" data-k="D" min="-180" max="180" step="0.1"></span></label>
@@ -226,6 +228,7 @@
        sin φ · sin δ + cos φ · cos δ · cos H )</pre>
         <h3>2. The wall</h3>
         <p>A vertical wall is described by its <b>declination D</b>: how far its outward normal turns from due south (west positive). Here D = <b data-v="D"></b>. (The controls measure the wall from the equator-facing direction instead, which is north in the southern hemisphere, so the same number describes the mirrored wall on the other side of the equator; the formulas use D from south.) The wall's frame is n = (−sin D, −cos D, 0) (outward), u = (cos D, −sin D, 0) (to your right as you face the wall), v = (0, 0, 1) (up). The wall is lit only when <code>s · n &gt; 0</code>. Over a year that gives this wall about <b data-v="lit"></b> of sun per day.</p>
+        <p data-plane="horizontal"><b>This dial is horizontal</b> (a garden dial), so D plays no part: the plate lies level with its top edge turned to true north, and its frame is n = (0, 0, 1) (up), u = (1, 0, 0) (east, to your right as you stand south of it looking north), v = (0, 1, 0) (north, towards the top edge). Everything below is unchanged with this frame. The style rises at the latitude along the meridian (SH = |φ|, SD = DL = 0), and the hour lines satisfy the classic <code>tan θ = sin φ · tan H</code>, measured at R from the noon line.</p>
         <h3>3. The shadow: one formula</h3>
         <p>Put a point, the <b>nodus</b>, at distance L = <b data-v="L"></b> in front of the foot F. Follow the ray from the nodus away from the sun until it hits the wall:</p>
         <pre>shadow = L·n − (L / (s·n)) · s      →  x = shadow·u,  y = shadow·v</pre>
@@ -268,6 +271,7 @@
        sin φ · sin δ + cos φ · cos δ · cos H )</pre>
         <h3>2. La parete</h3>
         <p>Una parete verticale è descritta dalla sua <b>declinazione D</b>: di quanto la normale uscente ruota rispetto al sud (ovest positivo). Qui D = <b data-v="D"></b>. (I controlli misurano la parete dalla direzione verso l'equatore, cioè nord nell'emisfero sud, quindi lo stesso numero descrive la parete speculare dall'altra parte dell'equatore; le formule usano D da sud.) Il sistema di riferimento della parete è n = (−sin D, −cos D, 0) (uscente), u = (cos D, −sin D, 0) (a destra guardando il muro), v = (0, 0, 1) (in alto). La parete è illuminata solo quando <code>s · n &gt; 0</code>. In un anno questo dà a questa parete circa <b data-v="lit"></b> di sole al giorno.</p>
+        <p data-plane="horizontal"><b>Questo quadrante è orizzontale</b> (da giardino), quindi D non conta: la lastra è in bolla con il lato superiore rivolto al nord vero, e il suo sistema di riferimento è n = (0, 0, 1) (in alto), u = (1, 0, 0) (est, alla tua destra stando a sud della lastra e guardando a nord), v = (0, 1, 0) (nord, verso il lato superiore). Tutto ciò che segue vale con questo riferimento. Lo stilo sale con l'angolo della latitudine lungo la meridiana (SH = |φ|, SD = DL = 0), e le linee orarie seguono la classica <code>tan θ = sin φ · tan H</code>, misurata in R dalla linea del mezzogiorno.</p>
         <h3>3. L'ombra: una formula</h3>
         <p>Metti un punto, il <b>nodo</b>, a distanza L = <b data-v="L"></b> davanti al piede F. Segui il raggio che parte dal nodo, in direzione opposta al sole, fino al muro:</p>
         <pre>ombra = L·n − (L / (s·n)) · s      →  x = ombra·u,  y = ombra·v</pre>

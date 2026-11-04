@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn } from './dial.js';
+import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn, PLANES } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor, faceSheetSize, gnomonSheetFor, tileLayout } from './svg.js';
 
@@ -40,7 +40,7 @@ export function wallPresetsFor(lat) {
 export const DEFAULTS = {
   lang: 'en',
   place: 'rome', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU',
-  D: 45, horizon: '',
+  plane: 'wall', D: 45, horizon: '',
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
   gPolar: true, gRod: true, rodX: 1, gBlade: false, bladeR: 1,
   hSolar: true, hZone: false, hHalf: true, hQuarter: false, hTen: false, hRoman: false, hExtend: true, hDstLabels: false, anaClock: false,
@@ -88,6 +88,7 @@ export function sanitize(input) {
   if (Math.abs(s.D) > lim) { s.D = Math.sign(s.D) * lim; warnings.push(['wallClamped']); }
   s.rodX = Math.round(s.rodX * 10) / 10; // in tenths: the templates print it
   if (!['paper', 'tile', 'laser'].includes(s.material)) s.material = 'paper';
+  if (!PLANES.includes(s.plane)) s.plane = 'wall';
   if (!['auto', 'portrait', 'landscape'].includes(s.orient)) s.orient = 'auto';
   if (!['color', 'bw'].includes(s.ink)) s.ink = 'color';
   if (!['none', 'A4', 'A3', 'A2'].includes(s.paper)) s.paper = 'none';
@@ -132,12 +133,12 @@ export function buildDial(s, t) {
   if (s.auto) {
     // extra room around the shadow region for the hour labels
     fit = autoFit(s.lat, D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
-      s.includeRoot && s.gBlade ? s.bladeR : 0);
+      s.includeRoot && s.gBlade ? s.bladeR : 0, s.plane);
     L = r2(fit.L, 1); fx = r2(fit.fx, 0.5); fy = r2(fit.fy, 0.5);
   }
   const dial = computeDial({
     lat: s.lat, lon: s.lon, tz: s.tz, D, L,
-    plate: { ...plate, fx, fy }, fontSize: fs, opts: s, t, grazing: s.grazing, bottomReserve, horizon: parseHorizon(s.horizon),
+    plate: { ...plate, fx, fy }, fontSize: fs, opts: s, t, grazing: s.grazing, bottomReserve, horizon: parseHorizon(s.horizon), plane: s.plane,
   });
   // things the user should know about the automatic fit, and about a time zone that does not fit the place
   if (fit?.relaxedTo != null) dial.warnings.push(['fitRelaxed', s.grazing, fit.relaxedTo]);
