@@ -90,7 +90,7 @@ function writeControls() {
   // the wall-clock figure-8s are read at the rod's tip, and they replace the other time lines (whose controls then do nothing)
   const clk = clockOn(state);
   $('[data-k="anaClock"]').disabled = !state.gRod;
-  for (const k of ['hSolar', 'hZone', 'hHalf', 'hQuarter', 'hTen', 'hExtend', 'anaMeanNoon', 'anaZoneNoon', 'anaHours']) $(`[data-k="${k}"]`).disabled = clk;
+  for (const k of ['hSolar', 'hZone', 'hHalf', 'hQuarter', 'hTen', 'hExtend', 'anaMeanNoon', 'anaZoneNoon', 'anaHours', 'anaMonthTicks']) $(`[data-k="${k}"]`).disabled = clk;
   if (!clk) $('[data-k="hExtend"]').disabled = !state.gPolar;
   if (!clk) $('[data-k="hQuarter"]').disabled = state.hTen; // 10-minute lines take the place of quarters
   $('[data-k="dTicks10"]').disabled = !clk;

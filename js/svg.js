@@ -24,7 +24,7 @@ export function sizesFor(material, plate) {
 const LSTYLE = {
   hour: ['#1b1b1b', 1.6], hourMinor: ['#1b1b1b', 0.7], hourFine: ['#1b1b1b', 0.3], hourExt: ['#1b1b1b', 0.5, '2 1.5'],
   zone: ['#1f5fa8', 1.4], zoneMinor: ['#1f5fa8', 0.6], zoneFine: ['#1f5fa8', 0.3], zoneExt: ['#1f5fa8', 0.5, '2 1.5'],
-  anaR: ['#c0392b', 1], anaF: ['#c0392b', 1, '3 1.5'], tick: ['#c0392b', 1], clockTick: ['#2a7f62', 0.7],
+  anaR: ['#c0392b', 1], anaF: ['#c0392b', 1, '3 1.5'], anaRs: ['#c0392b', 0.55], anaFs: ['#c0392b', 0.55, '3 1.5'], tick: ['#c0392b', 1], clockTick: ['#2a7f62', 0.7],
   date: ['#2a7f62', 1.1], dateMinor: ['#2a7f62', 0.6, '4 1.5'],
   ital: ['#8e44ad', 0.8], bab: ['#d35400', 0.8],
   az: ['#7a7a7a', 0.6, '1 1.5'], alt: ['#7a7a7a', 0.6, '1 1.5'],
@@ -37,7 +37,7 @@ const TCOLOR = { hour: '#1b1b1b', zone: '#1f5fa8', dst: '#a0700b', ana: '#c0392b
 const BW_STYLE = {
   hour: [1.6], hourMinor: [0.7], hourFine: [0.3, '1 1'], hourExt: [0.5, '2 1.5'],
   zone: [1.3, '7 2.5'], zoneMinor: [0.6, '7 2.5'], zoneFine: [0.3, '3.5 1.5'], zoneExt: [0.5, '1 2'],
-  anaR: [1], anaF: [1, '3 1.5'], tick: [1], clockTick: [0.7], // ticks are a few mm long: solid, like the figure-8s' month ticks
+  anaR: [1], anaF: [1, '3 1.5'], anaRs: [0.55, '8 1'], anaFs: [0.55, '2 1.5 0.5 1.5'], tick: [1], clockTick: [0.7], // ticks are a few mm long: solid, like the figure-8s' month ticks
   date: [1.1], dateMinor: [0.6, '4 1.5'],
   ital: [0.8, '9 2 1.5 2'], bab: [0.8, '3 3'],
   az: [0.5, '1 1.5'], alt: [0.5, '0.6 2.4'],
