@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG, norm180 } from '../js/astro.js';
-import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
+import { wallClockHourAngle, wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
+import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
-import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
+import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt, sunAt, utcFromCivil, REF_YEAR, dayOfYear } from '../js/astro.js';
 import { gnomonSheetFor, esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
-import { L_MIN, L_MAX } from '../js/dial.js';
+import { L_MIN, L_MAX, yearTable } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
@@ -127,7 +127,7 @@ test('sheets render for many configurations without NaN', () => {
     { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
-    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
+    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { anaClock: true, dTicks10: true }, { anaClock: true, dTicks10: true, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { anaClock: true, gRod: false, gBlade: true }, { hTen: true, hZone: true, hQuarter: true }, { anaClock: true, dTicks10: true, material: 'laser', plateW: 200, plateH: 150 }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
@@ -1126,4 +1126,103 @@ test('the multiplier only applies to the rod or a possible triangle; the layout 
     const best = Math.min(...cands.map((c) => tileLayout(c.W, c.H, 'A4', overlap, opts).pages));
     assert.equal(tileLayout(sh.W, sh.H, 'A4', overlap, opts).pages, best, `overlap ${overlap}: the fewest pages as printed`);
   }
+});
+
+test('wall-clock hour angle: the sun at the time a phone shows, summer time included, worldwide', () => {
+  for (const [lat, lon, tz, rule] of [[41.9, 12.5, 1, 'EU'], [-33.87, 151.2, 10, 'AU'], [40.71, -74.0, -5, 'US'], [5, 3, 0, 'none'], [-13.8, -172.1, 13, 'none']]) {
+    for (const [mo, d] of [[0, 15], [2, 10], [3, 1], [5, 21], [7, 30], [9, 15], [10, 20], [11, 31]]) for (const h of [8, 12, 17]) {
+      const sun = sunAt(utcFromCivil(REF_YEAR, mo, d, h, 0, tz, rule), lat, lon);
+      near(norm180(wallClockHourAngle(dayOfYear(mo, d), h * 60, lon, tz, rule) - sun.H), 0, 0.1, `${rule} ${mo + 1}/${d} ${h}:00`);
+    }
+  }
+});
+
+test('wall-clock figure-8s: rod only, they replace the other time lines, break at the summer-time changes', () => {
+  const t = makeT('en');
+  const ids = (c) => buildDial(sanitize({ ...DEFAULTS, ...c }).s, t).layers.map((l) => l.id);
+  const on = ids({ anaClock: true, hZone: true, anaHours: true, anaMeanNoon: true });
+  assert.ok(!on.some((x) => /^hour(Solar|Zone)/.test(x)), 'no straight hour lines');
+  const n8 = on.filter((x) => x === 'anaR').length;
+  assert.ok(n8 >= 10 && n8 === ids({ anaClock: true }).filter((x) => x === 'anaR').length, 'one 8 per clock hour with sun on the wall, and none of the other 8s');
+  const blade = ids({ anaClock: true, gRod: false, gBlade: true });
+  assert.ok(blade.includes('hourSolar') && blade.filter((x) => x === 'anaR').length === 1, 'without the rod the option does nothing');
+  assert.equal(clockOn(sanitize({ ...DEFAULTS, anaClock: true, gRod: false }).s), false);
+  assert.equal(dstLabelsApply(sanitize({ ...DEFAULTS, anaClock: true, hZone: true }).s), false, 'no +1 h labels: summer time is in the curves');
+  // summer time breaks each 8 into more pieces, with a bar at each end of a jump; without summer time there is no jump
+  const pieces = (dst) => { const d = buildDial(sanitize({ ...DEFAULTS, anaClock: true, dst }).s, t); return d.layers.filter((l) => /^ana[RF]$/.test(l.id)).reduce((n, l) => n + l.lines.length, 0); };
+  const bars = (dst) => buildDial(sanitize({ ...DEFAULTS, anaClock: true, anaMonthTicks: false, dst }).s, t).layers.filter((l) => l.id === 'anaTicks').reduce((n, l) => n + l.lines.length, 0);
+  assert.ok(pieces('EU') > pieces('none'), `${pieces('EU')} pieces with summer time, ${pieces('none')} without`);
+  assert.equal(bars('none'), 0, 'no jump without summer time');
+  assert.ok(bars('EU') >= 8, 'bars at the jumps');
+  // the curve passes where the shadow is at that wall-clock time: 12:00 on 15 July (summer time) in Rome
+  const { s } = sanitize({ ...DEFAULTS, anaClock: true }), dial = buildDial(s, t);
+  const pts8 = dial.layers.filter((l) => /^ana[RF]$/.test(l.id)).flatMap((l) => l.lines.flat());
+  for (const [mo, d, h] of [[6, 15, 16], [0, 15, 15], [3, 20, 17]]) { // summer time, winter time, summer time
+    const sun = sunAt(utcFromCivil(REF_YEAR, mo, d, h, 0, 1, 'EU'), s.lat, s.lon), S = shadowPoint(sun.vec, dial.L, dial.frame);
+    assert.ok(S[0] > dial.clip.x0 && S[0] < dial.clip.x1 && S[1] > dial.clip.y0 && S[1] < dial.clip.y1, 'on the plate');
+    assert.ok(Math.min(...pts8.map((q) => Math.hypot(q[0] - S[0], q[1] - S[1]))) < 0.6, `an 8 passes through the shadow at ${h}:00 on ${d}/${mo + 1} on the phone`);
+  }
+});
+
+test('10-minute ticks on the month lines: wall-clock times, January to June above the line, July to December below', () => {
+  const t = makeT('en');
+  const { s } = sanitize({ ...DEFAULTS, anaClock: true, dTicks10: true }), dial = buildDial(s, t);
+  const ticks = dial.layers.find((l) => l.id === 'clockTicks');
+  assert.ok(ticks && ticks.lines.length > 200, 'ticks drawn');
+  assert.ok(dial.layers.some((l) => l.id === 'dateMonths'), 'with their month lines');
+  assert.ok(!buildDial(sanitize({ ...DEFAULTS, dTicks10: true }).s, t).layers.some((l) => l.id === 'clockTicks'), 'only with the wall-clock 8s');
+  const fr = dial.frame, Y = yearTable();
+  for (const [mo, T, up] of [[0, 12 * 60, true], [5, 15 * 60 + 10, true], [6, 16 * 60 + 20, false], [10, 13 * 60 + 30, false]]) {
+    const d = Y[dayOfYear(mo, 1)], P = shadowPoint(sunVector(d.decl, wallClockHourAngle(d.i, T, s.lon, s.tz, s.dst), s.lat), dial.L, fr);
+    const tk = ticks.lines.find((l) => Math.hypot(l[0][0] - P[0], l[0][1] - P[1]) < 0.05);
+    assert.ok(tk, `a tick at ${T / 60}h on the 1st of month ${mo + 1}`);
+    assert.equal(tk[1][1] > tk[0][1], up, `month ${mo + 1}: ${up ? 'above' : 'below'} the line`);
+    const len = Math.hypot(tk[1][0] - tk[0][0], tk[1][1] - tk[0][1]) / dial.fontSize;
+    near(len, T % 60 === 0 ? 0.7 : T % 30 === 0 ? 0.5 : 0.32, 1e-6, 'long on the hour, medium on the half hour');
+  }
+});
+
+test('10-minute hour lines: hairlines between the half hours, unlabelled, in place of quarters', () => {
+  const t = makeT('en');
+  const d = buildDial(sanitize({ ...DEFAULTS, hTen: true, hQuarter: true }).s, t), L = (id) => d.layers.find((l) => l.id === id);
+  const major = L('hourSolar').lines.length, minor = L('hourSolarMinor').lines.length, fine = L('hourSolarFine').lines.length;
+  assert.ok(Math.abs(fine - 4 * major) <= 4 && Math.abs(minor - major) <= 2, `${major} hours, ${minor} half hours, ${fine} ten-minute lines`);
+  assert.equal(L('hourSolarFine').labels.length, 0);
+  const css = faceSheet(d, { s: sanitize({ ...DEFAULTS, hTen: true, ink: 'bw' }).s, t }).css;
+  assert.match(css, /\.l-hourFine\{fill:none;stroke:#000/);
+  assert.ok(!buildDial(sanitize({ ...DEFAULTS }).s, t).layers.find((l) => l.id === 'hourSolarFine').lines.length, 'off by default');
+});
+
+test('10-minute ticks keep one side along each month line, even where it turns steep (tropical pole-facing wall)', () => {
+  const t = makeT('en'), Y = yearTable();
+  for (const [D, lat, lon, tz, dst] of [[170, 10, 0, 0, 'none'], [-170, 10, 0, 0, 'none'], [80, 41.9, 12.5, 1, 'EU'], [45, -33.87, 151.2, 10, 'AU']]) {
+    const { s } = sanitize({ ...DEFAULTS, anaClock: true, dTicks10: true, D, lat, lon, tz, dst });
+    const dial = buildDial(s, t), tks = dial.layers.find((l) => l.id === 'clockTicks').lines;
+    for (const day of Y.filter((x) => x.dom === 1)) {
+      const sides = new Set();
+      for (let T = 0; T < 1440; T += 10) {
+        const H = wallClockHourAngle(day.i, T, s.lon, s.tz, s.dst);
+        const SPd = (h) => shadowPoint(sunVector(day.decl, h, s.lat), dial.L, dial.frame), p = SPd(H), q = SPd(H + 0.5);
+        if (!p || !q) continue;
+        const tk = tks.find((l) => Math.hypot(l[0][0] - p[0], l[0][1] - p[1]) < 1e-6);
+        if (tk) sides.add(Math.sign((q[0] - p[0]) * (tk[1][1] - tk[0][1]) - (q[1] - p[1]) * (tk[1][0] - tk[0][0])));
+      }
+      assert.ok(sides.size <= 1, `D ${D} lat ${lat}: the ticks of 1 ${day.m + 1} switch side`);
+    }
+  }
+});
+
+test('wall-clock dial: the info sheet checks the 12 o\'clock figure-8, and the 10-minute lines have their own black-and-white dashes', () => {
+  for (const lang of ['en', 'it']) {
+    const t = makeT(lang), on = sanitize({ ...DEFAULTS, lang, anaClock: true }).s, off = sanitize({ ...DEFAULTS, lang }).s;
+    // the sheet's text with its wrapped lines joined back
+    const sheet = (s) => [...svgDoc(infoSheet(buildDial(s, t), { s, t, place: 'x', dateStr: 'x' })).matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join(' ');
+    const words = (str) => esc(str).split(' ').slice(-4).join(' '); // the endings differ (both start 'Verify on a sunny day')
+    assert.ok(sheet(on).includes(words(t('stepClock'))) && !sheet(on).includes(words(t('steps')[4])), `${lang}: the clock check replaces the solar-noon one`);
+    assert.ok(sheet(off).includes(words(t('steps')[4])) && !sheet(off).includes(words(t('stepClock'))), `${lang}: unchanged without it`);
+  }
+  const t = makeT('en'), s = sanitize({ ...DEFAULTS, hTen: true, hZone: true, ink: 'bw' }).s, css = faceSheet(buildDial(s, t), { s, t }).css;
+  const dash = (k) => (css.match(new RegExp(`\\.l-${k}\\{[^}]*stroke-dasharray:([^;}]+)`)) || [])[1];
+  assert.ok(dash('hourFine') && dash('zoneFine'), 'the 10-minute lines are dashed in black and white');
+  assert.equal(new Set(['hourFine', 'zoneFine', 'zone', 'zoneMinor'].map(dash)).size, 3, 'distinct from each other and from the zone lines (zone and its half hours share theirs)');
 });
