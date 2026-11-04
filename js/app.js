@@ -2,8 +2,8 @@
 
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
-import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
-import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, serializeState, dstLabelsApply } from './state.js';
+import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
+import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
 
@@ -42,7 +42,7 @@ function saveHash() {
 function applyLang() {
   t = makeT(state.lang);
   document.documentElement.lang = state.lang;
-  for (const el of $$('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of $$('[data-i18n]')) el.textContent = t(el.dataset.i18n, ROD_MAX); // only rodX's label has a placeholder
   for (const b of $$('[data-lang-btn]')) b.setAttribute('aria-pressed', String(b.dataset.langBtn === state.lang));
   fillSelects();
 }
@@ -80,7 +80,10 @@ function writeControls() {
     else if (document.activeElement !== el) el.value = typeof v === 'number' ? +v.toFixed(4) : v;
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
-  $('[data-k="rodX"]').disabled = !state.gRod && !state.gPolar; // it lengthens the rod and the style edge
+  const rodOn = dial ? rodXApplies(state, dial) : true; // it lengthens the rod and the style edge (where the wall allows one)
+  $('[data-k="rodX"]').disabled = !rodOn;
+  $('[data-k="rodX"]').max = ROD_MAX;
+  $('[data-k="fitGnomonX"]').disabled = state.paper === 'none' || !rodOn; // an option of 'fit to one page', which needs a paper size
   $('[data-k="bladeR"]').disabled = !state.gBlade; // only the blade has a height
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
@@ -447,13 +450,13 @@ const tileOpts = () => ({ orient: state.orient, margin: state.printMargin, t });
 // everything to print: the dial's pages, then the gnomon template, the info sheet and the chart (each normally one page)
 function printJob() {
   const c = ctx(), nm = PRESETS[state.place]?.name || '';
-  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheet(dial, c), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')], [correctionSheet(dial, c), t('sheetCorr')]];
+  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheetFor(dial, c, state.paper, { ...tileOpts(), overlap: state.overlap }), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')], [correctionSheet(dial, c), t('sheetCorr')]];
 }
 // only the page grid is computed here; the SVGs are built when a button is clicked
 function updateTiles() {
   const box = $('#tiles'), info = $('#printInfo');
   const none = state.paper === 'none';
-  $('#fitPage').disabled = $('#fitGnomon').disabled = none;
+  $('#fitPage').disabled = none;
   for (const k of ['overlap', 'orient', 'printMargin']) $(`[data-k="${k}"]`).disabled = none; // they only matter with a paper size
   if (none) { info.textContent = t('printNone'); box.innerHTML = ''; return; }
   const { W, H } = faceSheetSize(dial, state);
@@ -477,16 +480,18 @@ function updateTiles() {
 function bindDownloads() {
   $('#fitPage').addEventListener('click', () => {
     const fit = fitPlateToPage(state, t, state.paper, tileOpts());
-    if (fit) Object.assign(state, fit); else inputWarnings.push(['fitPageNo']);
-    update();
-  });
-  $('#fitGnomon').addEventListener('click', () => {
-    const fit = fitGnomonToPage(state, t, state.paper, tileOpts());
-    if (fit) Object.assign(state, fit, { auto: false }); else inputWarnings.push(['fitGnomonNo']);
+    if (!fit) { inputWarnings.push(['fitPageNo']); update(); return; }
+    Object.assign(state, fit);
+    // then, if asked, the biggest gnomon that is one page too: only the multiplier changes, never the dial
+    const fitted = sanitize(state).s;
+    if (state.fitGnomonX && rodXApplies(fitted, buildDial(fitted, t))) {
+      const k = fitGnomonScale(fitted, t, state.paper, tileOpts());
+      if (k) state.rodX = k; else inputWarnings.push(['fitGnomonNo']);
+    }
     update();
   });
   $('#dlFace').addEventListener('click', () => download(`${base()}-face.svg`, svgDoc(faceSheet(dial, ctx()))));
-  $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheet(dial, ctx()))));
+  $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheetFor(dial, ctx(), state.paper, { ...tileOpts(), overlap: state.overlap }))));
   $('#dlInfo').addEventListener('click', () => download(`${base()}-info.svg`, svgDoc(infoSheet(dial, ctx()))));
   $('#dlCorr').addEventListener('click', () => download(`${base()}-correction.svg`, svgDoc(correctionSheet(dial, ctx()))));
   $('#tiles').addEventListener('click', (e) => {
