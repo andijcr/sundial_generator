@@ -47,18 +47,18 @@ export const DEFAULTS = {
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false,
   xItalian: false, xBabylonian: false, xAzimuth: false, xAltitude: false, xSubstyle: true, xInfo: true, motto: '',
-  material: 'paper', faceBrief: false, paper: 'none', overlap: 10, orient: 'auto', printMargin: 8, ink: 'color',
+  material: 'paper', faceBrief: false, fitGnomonX: false, paper: 'none', overlap: 10, orient: 'auto', printMargin: 8, ink: 'color',
   v2d: true, v3d: true,
 };
 
-/** Length multipliers offered for the oversized rod (1 = the rod at its true length). */
-export const ROD_SCALES = [1, 2, 3, 5];
+/** Largest multiplier of the oversized rod and triangular style (1 = true size); it is set in tenths. */
+export const ROD_MAX = 10;
 
 // [min, max] sanity bounds for numeric settings
 export const BOUNDS = {
   lat: [-66, 66], lon: [-180, 180], tz: [-12, 14], D: [-180, 180],
   plateW: [50, 5000], plateH: [50, 5000], L: [L_MIN, L_MAX], fx: [-10000, 10000], fy: [-10000, 10000],
-  grazing: [1, 40], rodX: [1, 5], bladeR: [0.3, 3], overlap: [0, 60], printMargin: [0, 30],
+  grazing: [1, 40], rodX: [1, ROD_MAX], bladeR: [0.3, 3], overlap: [0, 60], printMargin: [0, 30],
 };
 
 /** Coerce types, clamp to bounds. Returns { s, warnings }. */
@@ -86,7 +86,7 @@ export function sanitize(input) {
   // outside the tropics, walls facing away from the sun are not offered
   const lim = wallLimit(s.lat);
   if (Math.abs(s.D) > lim) { s.D = Math.sign(s.D) * lim; warnings.push(['wallClamped']); }
-  if (!ROD_SCALES.includes(s.rodX)) s.rodX = 1;
+  s.rodX = Math.round(s.rodX * 10) / 10; // in tenths: the templates print it
   if (!['paper', 'tile', 'laser'].includes(s.material)) s.material = 'paper';
   if (!['auto', 'portrait', 'landscape'].includes(s.orient)) s.orient = 'auto';
   if (!['color', 'bw'].includes(s.ink)) s.ink = 'color';
@@ -198,21 +198,17 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
 }
 
 /**
- * The largest scale L (whole mm) for which the gnomon template is a single page of `paper`, or null when even the
- * smallest does not fit (an oversized gnomon on a small paper, say). The template grows with L, so this bisects.
- * Returns { L, fx, fy }: switch to manual scale with that L and the foot where the automatic fit put it, so the dial
- * keeps its place on the plate and only shrinks (or grows) around the foot.
+ * The largest gnomon multiplier rodX (in tenths, 1 to ROD_MAX) whose template is a single page of `paper`, for the dial as
+ * it is: the dial (L, the foot, every mark) does not depend on rodX, so fitting the gnomon never changes the dial. Used after
+ * fitPlateToPage when its option `fitGnomonX` is on. Returns null when even ×1 does not fit, or when neither the rod nor the
+ * triangular style is drawn (rodX changes nothing then). Every tenth is tried, so a sheet that does not grow strictly with
+ * the multiplier cannot stop the search early.
  */
-export function fitGnomonToPage(s, t, paper, opts = {}) {
-  const base = buildDial(s, t), fx = base.plate.fx, fy = base.plate.fy;
-  const fits = (L) => {
-    const sn = { ...s, auto: false, L, fx, fy };
-    const sh = gnomonSheet(buildDial(sn, t), { s: sn, t, place: '', dateStr: '' });
-    return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1;
-  };
-  if (!fits(L_MIN)) return null;
-  let lo = L_MIN, hi = L_MAX;
-  if (fits(hi)) return { L: hi, fx, fy };
-  while (hi - lo > 0.01) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
-  return { L: Math.floor(lo), fx, fy };
+export function fitGnomonScale(s, t, paper, opts = {}) {
+  if (!s.gRod && !s.gPolar) return null;
+  const dial = buildDial(s, t);
+  const fits = (k) => { const sh = gnomonSheet(dial, { s: { ...s, rodX: k }, t, place: '', dateStr: '' }); return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1; };
+  let best = null;
+  for (let k10 = 10; k10 <= ROD_MAX * 10; k10++) if (fits(k10 / 10)) best = k10 / 10;
+  return best;
 }

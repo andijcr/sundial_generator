@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG, norm180 } from '../js/astro.js';
 import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
+import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, ROD_MAX, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
 import { esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
@@ -127,7 +127,7 @@ test('sheets render for many configurations without NaN', () => {
     { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
-    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
+    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
@@ -696,11 +696,11 @@ test('graph CSS only comes with the chart sheet; the chart sheet is black and wh
   assert.ok(!infoSheet(dial, ctx).css.includes(graphCss(true).slice(0, 20)));
 });
 
-test('rodX is one of the offered multipliers and survives the URL hash', () => {
-  assert.deepEqual(ROD_SCALES, [1, 2, 3, 5]);
-  for (const [raw, want] of [[2, 2], ['3', 3], [4, 1], [0, 1], [9, 5], ['x', 1]]) assert.equal(sanitize({ rodX: raw }).s.rodX, want, String(raw));
-  const { s } = sanitize({ rodX: 5 });
-  assert.equal(sanitize(Object.fromEntries(new URLSearchParams(serializeState(s)))).s.rodX, 5);
+test('rodX: 1 to ROD_MAX in tenths, and it survives the URL hash', () => {
+  assert.equal(ROD_MAX, 10);
+  for (const [raw, want] of [[2, 2], ['3', 3], [4.63, 4.6], [0, 1], [12, 10], ['x', 1]]) assert.equal(sanitize({ rodX: raw }).s.rodX, want, String(raw));
+  const { s } = sanitize({ rodX: 4.6 });
+  assert.equal(sanitize(Object.fromEntries(new URLSearchParams(serializeState(s)))).s.rodX, 4.6);
   assert.equal(serializeState(sanitize({}).s), '');
 });
 
@@ -774,21 +774,33 @@ test('oversized triangular style: the whole triangle is rodX times bigger, notch
   }
 });
 
-test('fit the gnomon template to one page: the largest scale that fits, shrinking with the oversized options', () => {
-  const tt = makeT('en'), opts = { orient: 'auto', margin: 8 };
-  const Ls = {};
-  for (const [name, extra] of [['plain', {}], ['x3', { rodX: 3 }], ['blade', { gBlade: true }], ['rod', { gPolar: false }]]) {
-    const { s } = sanitize({ ...DEFAULTS, ...extra });
-    const fit = fitGnomonToPage(s, tt, 'A4', opts);
-    assert.ok(fit && fit.L >= L_MIN, name);
-    const pages = (L) => { const sn = { ...s, auto: false, L, fx: fit.fx, fy: fit.fy }, sh = gnomonSheet(buildDial(sn, tt), { s: sn, t: tt, place: '', dateStr: '' }); return tileLayout(sh.W, sh.H, 'A4', 10, opts).pages; };
-    assert.equal(pages(fit.L), 1, `${name} fits`);
-    assert.ok(pages(fit.L + 1) > 1 || fit.L >= L_MAX, `${name} is the largest`);
-    Ls[name] = fit.L;
+test('fit to one page with fitGnomonX: the dial is fitted as without it, then the largest gnomon multiplier that is one page', () => {
+  const tt = makeT('en');
+  const ks = {};
+  for (const paper of ['A4', 'A3']) for (const orient of ['auto', 'portrait']) for (const extra of [{}, { gPolar: false }, { gRod: false }, { gBlade: true }, { lang: 'it' }]) {
+    const { s: s0 } = sanitize({ ...DEFAULTS, ...extra, paper, orient, fitGnomonX: true });
+    const opts = { orient, margin: 8 }, t = makeT(s0.lang);
+    const s = sanitize({ ...s0, ...fitPlateToPage(s0, t, paper, opts) }).s;
+    const k = fitGnomonScale(s, t, paper, opts), tag = `${paper} ${orient} ${JSON.stringify(extra)}`;
+    const pages = (x) => { const sn = { ...s, rodX: x }, sh = gnomonSheet(buildDial(sn, t), { s: sn, t, place: '', dateStr: '' }); return tileLayout(sh.W, sh.H, paper, 0, opts).pages; };
+    if (k === null) { // only when not even ×1 is one page (rod, triangle and blade side by side are wider than A4)
+      assert.ok(pages(1) > 1 && extra.gBlade, `${tag}: no multiplier although ×1 is one page`);
+      continue;
+    }
+    assert.ok(k >= 1 && k <= ROD_MAX && Math.abs(k * 10 - Math.round(k * 10)) < 1e-9, `${tag}: ${k}`);
+    assert.equal(pages(k), 1, `${tag}: ×${k} is one page`);
+    for (let x = Math.round(k * 10 + 1); x <= ROD_MAX * 10; x++) assert.ok(pages(x / 10) > 1, `${tag}: ×${x / 10} would also fit`);
+    // the dial does not change at all: same L, same foot, the same dial sheet
+    const a = { ...s, rodX: 1 }, b = { ...s, rodX: k }, da = buildDial(a, t), db = buildDial(b, t);
+    assert.deepEqual([da.L, da.plate.fx, da.plate.fy], [db.L, db.plate.fx, db.plate.fy], tag);
+    assert.equal(svgDoc(faceSheet(da, { s: a, t, place: 'x', dateStr: 'x' })), svgDoc(faceSheet(db, { s: b, t, place: 'x', dateStr: 'x' })), `${tag}: the dial sheet is identical`);
+    ks[`${paper} ${orient} ${JSON.stringify(extra)}`] = k;
   }
-  assert.ok(Ls.x3 < Ls.plain, 'a x3 gnomon needs a smaller L');
-  assert.equal(fitGnomonToPage(sanitize({}).s, tt, 'none', opts), null);
-  assert.ok(fitGnomonToPage(sanitize({}).s, tt, 'A3', opts).L > Ls.plain);
+  assert.ok(ks['A3 auto {}'] > ks['A4 auto {}'], 'bigger paper, bigger gnomon');
+  assert.equal(fitGnomonScale(sanitize({ ...DEFAULTS, gPolar: false, gRod: false, gBlade: true }).s, tt, 'A4', {}), null, 'nothing to size with the blade alone');
+  assert.equal(fitGnomonScale(sanitize({}).s, tt, 'none', {}), null, 'no paper');
+  assert.equal(fitGnomonScale(sanitize({ ...DEFAULTS, auto: false, L: 400 }).s, tt, 'A4', {}), null, 'a gnomon that does not fit even at ×1');
+  assert.equal(sanitize({}).s.fitGnomonX, false, 'off by default');
 });
 
 test('short dial caption: smaller sheet, no scale bar, still inside the sheet', () => {
