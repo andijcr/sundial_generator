@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, bladeSign, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn, PLANES } from './dial.js';
+import { computeDial, autoFit, bladeSign, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn, tipOn, PLANES } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor, faceSheetSize, gnomonSheetFor, tileLayout } from './svg.js';
 
@@ -43,7 +43,7 @@ export const DEFAULTS = {
   plane: 'wall', D: 45, horizon: '',
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
   gPolar: true, gRod: true, rodX: 1, gBlade: false, bladeR: 1,
-  hSolar: true, hZone: false, hHalf: true, hQuarter: false, hTen: false, hRoman: false, hExtend: true, hDstLabels: false, anaClock: false,
+  hSolar: true, hZone: false, hHalf: true, hQuarter: false, hTen: false, hRoman: false, hExtend: true, hDstLabels: false, anaClock: false, rodTip: false,
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false, dTicks10: false,
   xItalian: false, xBabylonian: false, xAzimuth: false, xAltitude: false, xSubstyle: true, xInfo: true, motto: '',
@@ -113,7 +113,7 @@ const r2 = (x, q) => Math.round(x / q) * q;
  */
 export const dstLabelsApply = (s) => !clockOn(s) && !!(s.hZone || s.anaZoneNoon || s.anaHours);
 
-export { clockOn }; // defined in dial.js, which the sheets also use
+export { clockOn, tipOn }; // defined in dial.js, which the sheets also use
 
 /** URL-hash form of the state: only values that differ from the defaults. */
 export function serializeState(s) {
@@ -202,14 +202,15 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
 
 /**
  * The largest gnomon multiplier rodX (in tenths, 1 to ROD_MAX) whose template is a single page of `paper`, for the dial as
- * it is: the dial (L, the foot, every mark) does not depend on rodX, so fitting the gnomon never changes the dial. Used after
+ * it is: the dial (L, the foot, every mark) does not depend on rodX, so fitting the gnomon never changes the dial (except with
+ * the two-point rod, whose winter curves are drawn at rodX x L: then it does nothing). Used after
  * fitPlateToPage when its option `fitGnomonX` is on. Returns null when even ×1 does not fit, or when rodX changes nothing
  * (rodXApplies). The tenths are tried from the top down, every one until the first that fits, so a sheet that does not grow
  * strictly with the multiplier cannot stop the search early.
  */
 export function fitGnomonScale(s, t, paper, opts = {}) {
   const dial = buildDial(s, t);
-  if (!rodXApplies(s, dial)) return null;
+  if (!rodXApplies(s, dial) || (s.rodTip && clockOn(s))) return null; // with the two-point rod asked for, rodX is part of the dial (raising it from x1 would switch the tip on): never change it
   const fits = (k) => { const sh = gnomonSheetFor(dial, { s: { ...s, rodX: k }, t, place: '', dateStr: '' }, paper, opts); return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1; };
   for (let k10 = ROD_MAX * 10; k10 >= 10; k10--) if (fits(k10 / 10)) return k10 / 10; // from the top: the first that fits is the largest
   return null;
