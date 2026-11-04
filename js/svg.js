@@ -8,7 +8,7 @@ import { absoluteDeclination } from './dial.js';
 import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
 export const MATERIALS = { paper: { sw: 0.35, font: 5 }, tile: { sw: 1.0, font: 8 }, laser: { sw: 0.1, font: 5 } };
@@ -282,8 +282,8 @@ function summaryLines(dial, ctx) {
   const a = dial.angles;
   const systems = [s.hSolar && t('hSolar'), s.hZone && t('hZone'), s.anaMeanNoon && t('anaMeanNoon'), (s.anaZoneNoon || s.anaHours) && (s.anaHours ? t('anaHours') : t('anaZoneNoon'))].filter(Boolean).join(' · ');
   return [
-    `${ctx.place ? ctx.place + ' — ' : ''}${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'}, UTC${s.tz >= 0 ? '+' : ''}${s.tz} (${s.dst})`,
-    `D = ${s.D.toFixed(1)}° ${t('dRef')} (${t('faces')} ${((180 + absoluteDeclination(s.lat, s.D) + 360) % 360).toFixed(1)}° N→E) · L = ${mm(dial.L)} · ${dial.plate.w.toFixed(0)} × ${dial.plate.h.toFixed(0)} mm`,
+    `${ctx.place ? ctx.place + ' — ' : ''}${latLon(s)}, UTC${s.tz >= 0 ? '+' : ''}${s.tz} (${s.dst})`,
+    `D = ${s.D.toFixed(1)}° ${t('dRef')} (${t('faces')} ${((180 + absoluteDeclination(s.lat, s.D) + 360) % 360).toFixed(1)}° N→E) · L = ${mm(dial.L)} · ${mm1(dial.plate.w)} × ${mm1(dial.plate.h)} mm`,
     `${t('SH')} ${a.SH.toFixed(2)}° · ${t('SD')} ${a.SD.toFixed(2)}° · ${t('DL')} ${a.DL.toFixed(2)}°`,
     systems,
   ];
@@ -302,27 +302,36 @@ const CHAR_W = 2.0; // estimated width of one character of a 3.5 px dimension la
  */
 // Where the face sheet's dimension lines sit, mm outside the plate: the plate's own size, then F, then R (full caption only).
 const DIM1 = 7, DIM2 = 14;
-const LASER_KEY_H = 16; // a laser sheet's key to its colours: three wrapped lines
+const KEY_FS = 3.2, KEY_CHAR_W = 1.75; // the laser key's text size (px = mm) and estimated width of one character, mm
+
+/** The laser key (what its colours mean), wrapped to a sheet W mm wide with left margin ML, and the height it takes. */
+function laserKey(t, W, ML) {
+  const lines = wrapText(t('laserNote'), Math.max(30, Math.floor((W - ML - 8) / KEY_CHAR_W)));
+  return { lines, h: lines.length * KEY_FS * 1.45 + 4 };
+}
+/** The style root in plate coordinates (mm from the plate's left and top edges), or null when the triangular style is not drawn. */
+const rootOnPlate = (dial, s) => (dial.root && s.gPolar ? [dial.plate.fx + dial.root[0], dial.plate.fy - dial.root[1]] : null);
+const latLon = (s) => `${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'}`;
+const mm1 = (x) => String(+x.toFixed(1)); // 600, or 600.4 for a plate typed to the tenth
 
 /** The short caption's lines: title, place and scale, and where F and R are on the plate (the numbers the dimension lines would give). */
 function briefLines(dial, s, t) {
   const P = dial.plate;
   return [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
-    `${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)} · ${P.w.toFixed(0)} × ${P.h.toFixed(0)} mm`,
+    `${latLon(s)} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)} · ${mm1(P.w)} × ${mm1(P.h)} mm`,
     ...platePos(dial, s, t)];
 }
 /** ["F: x mm from the left edge, y mm from the top", "R: …"]: where the foot and the style root are on the plate. */
 export const platePos = (dial, s, t) => {
-  const P = dial.plate, R = dial.root && s.gPolar ? [P.fx + dial.root[0], P.fy - dial.root[1]] : null;
+  const P = dial.plate, R = rootOnPlate(dial, s);
   return [t('posF', P.fx.toFixed(1), P.fy.toFixed(1)), ...(R ? [t('posR', R[0].toFixed(1), R[1].toFixed(1))] : [])];
 };
 
 function faceMargins(dial, s) {
   const P = dial.plate;
-  const R = dial.root && s.gPolar ? [P.fx + dial.root[0], P.fy - dial.root[1]] : null; // style root in plate coords, y down
+  const R = rootOnPlate(dial, s);
   const brief = !!s.faceBrief; // short caption: no dimension lines and no scale bar (the positions are in the caption)
-  const laserH = s.material === 'laser' ? LASER_KEY_H : 0;
-  const t = makeT(s.lang || 'en');
+  const t = makeT(s.lang || 'en'), caption = brief ? briefLines(dial, s, t) : null;
   let left, top, right;
   if (brief) {
     left = 2; top = 2; right = 2;
@@ -339,15 +348,17 @@ function faceMargins(dial, s) {
     top = Math.max(top, 6 - R[1]);
   }
   // the title block's width, estimated from its longest line (the place name, unknown here, gets 20 characters)
-  const textW = TITLE_CHAR_W * (brief ? Math.max(...briefLines(dial, s, t).map((l) => (l.t || l).length))
+  const textW = TITLE_CHAR_W * (brief ? Math.max(...caption.map((l) => (l.t || l).length))
     : Math.max(...summaryLines(dial, { s, t, place: '' }).map((l, i) => l.length + (i ? 0 : 20)), footLine(dial, s, t).length));
   const barBelow = !brief && textW + 8 > P.w - 100; // the scale bar's left end is 100 mm left of the plate's right edge
   // bottom: the caption starts just below the plate (brief) or below the F and R dimensions; its height follows its lines
-  const B = brief ? 8 + (briefLines(dial, s, t).length - 1) * 3.6 * 1.45 + 4 + laserH : DIM2 + 12 + 6 * 3.6 * 1.45 + 6 + (barBelow ? 22 : 0) + laserH;
-  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: Math.ceil(B) };
+  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4) };
   m.R = Math.max(m.R, Math.ceil(textW + 6 - P.w), barBelow ? 110 - P.w : 0); // room for the title block, and for the bar under it
-  m.barBelow = barBelow;
-  return m;
+  // a laser sheet adds the key to its colours, wrapped to the sheet's width; its height follows its lines
+  const key = s.material === 'laser' ? laserKey(t, P.w + m.L + m.R, m.L) : null;
+  const keyH = key ? key.h : 0;
+  const B = brief ? 8 + (caption.length - 1) * 3.6 * 1.45 + 4 + keyH : DIM2 + 12 + 6 * 3.6 * 1.45 + 6 + (barBelow ? 22 : 0) + keyH;
+  return { ...m, B: Math.ceil(B), barBelow, key, caption };
 }
 
 /** Size of the face sheet in mm, without rendering it. s: the settings (what is drawn, the language of the title block). */
@@ -360,8 +371,8 @@ export function faceSheet(dial, ctx) {
   const { s, t } = ctx;
   const P = dial.plate;
   const { sw } = sizesFor(s.material, P);
-  const { L: ML, T: MT, R: MR, barBelow } = faceMargins(dial, s);
-  const { W, H } = faceSheetSize(dial, s);
+  const { L: ML, T: MT, R: MR, B: MB, barBelow, key, caption } = faceMargins(dial, s);
+  const W = P.w + ML + MR, H = P.h + MT + MB;
   let g = dialMarkup(dial, ctx);
   if (s.material !== 'laser') {
     g += `<path class="l-construct" d="M${f(P.fx)} 0V${f(P.h)}"/>`;
@@ -375,8 +386,9 @@ export function faceSheet(dial, ctx) {
     g += dimH(0, P.fx, P.h + DIM1, P.h, `F ${mm(P.fx)}`);
     g += dimV(0, P.fy, P.w + DIM1, P.w, `F ${mm(P.fy)}`);
   }
-  if (dial.root && s.gPolar) {
-    const rx = P.fx + dial.root[0], ry = P.fy - dial.root[1];
+  const root = rootOnPlate(dial, s);
+  if (root) {
+    const [rx, ry] = root;
     if (s.material !== 'laser') g += `<text class="dt" x="${f(rx + 3)}" y="${f(ry - 3)}" style="text-anchor:start">R</text>`;
     if (!s.faceBrief) {
       g += dimH(0, rx, P.h + DIM2, P.h, `R ${mm(rx)}`);
@@ -388,21 +400,22 @@ export function faceSheet(dial, ctx) {
   const done = (notes) => ({ W, H, inner: laser ? laserArrows(laserLayers([[g, `translate(${ML},${MT})`], [notes]])) : `<g transform="translate(${ML},${MT})">${g}</g>${notes}`, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw', laser });
   // title block
   if (s.faceBrief) {
-    return done(textLines(ML, MT + P.h + 8, [...briefLines(dial, s, t), ...(laser ? wrapText(t('laserNote'), Math.max(50, Math.floor((W - ML - 8) / 1.75))) : [])], 3.6));
+    const y0 = MT + P.h + 8;
+    return done(textLines(ML, y0, caption, 3.6) + (key ? textLines(ML, y0 + caption.length * 3.6 * 1.45, key.lines, KEY_FS) : ''));
   }
   const ty = MT + P.h + DIM2 + 12;
   let inner = textLines(ML, ty, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true }, ...summaryLines(dial, ctx),
     footLine(dial, s, t),
     `${t('generated')}: ${ctx.dateStr || ''}`], 3.6);
   // 100 mm scale bar
-  const LN = laser ? LASER_KEY_H : 0; // a laser sheet keeps a strip at the bottom for the key to its colours
+  const LN = key ? key.h : 0; // a laser sheet keeps a strip at the bottom for the key to its colours
   const sx = barBelow ? ML : W - MR - 100, sy = H - 14 - LN;
   let bar = `<path class="dim" d="M${sx} ${sy}H${sx + 100}"/>`;
   for (let i = 0; i <= 10; i++) bar += `<path class="dim" d="M${sx + i * 10} ${sy}V${sy - (i % 5 === 0 ? 4 : 2)}"/>`;
   bar += `<text class="dt" x="${sx}" y="${sy - 5.5}">0</text><text class="dt" x="${sx + 50}" y="${sy - 5.5}">50</text><text class="dt" x="${sx + 100}" y="${sy - 5.5}">100 mm</text>`;
   bar += `<text class="dt" x="${sx + 50}" y="${sy + 5}">${esc(t('scale'))}</text>`;
   inner += bar;
-  if (laser) inner += textLines(ML, H - LN + 4, wrapText(t('laserNote'), Math.max(50, Math.floor((W - ML - 8) / 1.75))), 3.2);
+  if (key) inner += textLines(ML, H - LN + 4, key.lines, KEY_FS);
   return done(inner);
 }
 

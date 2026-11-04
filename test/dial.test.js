@@ -5,11 +5,10 @@ import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, 
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
-import { scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
+import { esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 const sin = (d) => Math.sin(d * DEG), cos = (d) => Math.cos(d * DEG), tan = (d) => Math.tan(d * DEG);
 
@@ -534,6 +533,12 @@ test('tileSavings: trimming the stated amount really removes the stated number o
   const dial = buildDial(s, makeT('en')), { W, H } = faceSheetSize(dial, s);
   const lay = tileLayout(W, H, 'A3', 10);
   assert.equal(lay.pages, 4, JSON.stringify({ W, H, pages: lay.pages }));
+  // a real dial the hint applies to: 620 x 460 on A3 is a row of pages too tall, and trimming the plate as told removes it
+  const { s: s2 } = sanitize({ ...DEFAULTS, plateW: 620, plateH: 460 }), z = faceSheetSize(buildDial(s2, makeT('en')), s2);
+  const lay2 = tileLayout(z.W, z.H, 'A3', 10), save = tileSavings(z.W, z.H, lay2);
+  assert.ok(save && save.axis === 'H' && save.mm <= 2 && save.pages === 2, JSON.stringify({ pages: lay2.pages, save }));
+  const { s: s3 } = sanitize({ ...s2, plateH: 460 - Math.ceil(save.mm) }), z3 = faceSheetSize(buildDial(s3, makeT('en')), s3);
+  assert.equal(tileLayout(z3.W, z3.H, 'A3', 10).pages, lay2.pages - save.pages, 'the trimmed plate really needs fewer pages');
 });
 
 test('a sheet that fits on one page takes the orientation that matches its shape', () => {
@@ -1044,4 +1049,17 @@ test('short caption: no dimension lines; the caption and the info sheet give F a
   assert.ok(svg.includes('class="dim"'), 'full sheet: dimension lines');
   const m = faceSheetSize(dial, s), mb = faceSheetSize(dial, { ...s, faceBrief: true });
   assert.ok(mb.W < m.W && mb.H < m.H - 40, 'the short caption saves room');
+});
+
+test('laser key on the short caption: wrapped to the sheet, inside it on every side, in both languages', () => {
+  for (const lang of ['en', 'it']) for (const [plateW, plateH] of [[120, 200], [182, 240], [269, 137], [600, 450]]) for (const faceBrief of [true, false]) {
+    const { s } = sanitize({ ...DEFAULTS, lang, material: 'laser', faceBrief, plateW, plateH });
+    const t = makeT(lang), dial = buildDial(s, t), sh = faceSheet(dial, { s, t, place: 'x', dateStr: 'x' }), svg = svgDoc(sh);
+    const key = [...svg.matchAll(/<text class="st[^"]*" x="([\d.]+)" y="([\d.]+)" font-size="3.2">([^<]*)<\/text>/g)];
+    assert.ok(key.length >= 1, `${lang} ${plateW}: the key is drawn`);
+    for (const m of key) {
+      assert.ok(+m[1] + m[3].length * 1.75 <= sh.W + 0.5, `${lang} ${plateW}x${plateH} ${faceBrief}: "${m[3].slice(0, 20)}…" past the right edge`);
+      assert.ok(+m[2] <= sh.H - 2, `${lang} ${plateW}x${plateH} ${faceBrief}: key past the bottom`);
+    }
+  }
 });

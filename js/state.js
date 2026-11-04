@@ -181,13 +181,15 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
     if (W < lo || H < lo || !fits(W, H)) continue;
     // and grow what the iteration left over. The sheet does not grow strictly with the plate (L is rounded to whole mm, which
     // moves the root and so the margins), so look a few millimetres ahead before stopping.
-    const step = (dw, dh) => { for (let k = 1; k <= 4; k++) if (fits(W + k * dw, H + k * dh)) return k; return 0; };
+    // Each candidate is checked at the size actually taken (clamped to the bound), so the result always fits.
+    const step = (dw, dh) => {
+      for (let k = 1; k <= 4; k++) { const w = Math.min(hi, W + k * dw), h = Math.min(hi, H + k * dh); if ((w > W || h > H) && fits(w, h)) return [w, h]; }
+      return null;
+    };
     // Growing one side changes L, and so what the other side can take: alternate until neither grows.
     for (let grew = true, n = 0; grew && n < 2000; n++) {
       grew = false;
-      let k;
-      if (W < hi && (k = step(1, 0))) { W = Math.min(hi, W + k); grew = true; }
-      if (H < hi && (k = step(0, 1))) { H = Math.min(hi, H + k); grew = true; }
+      for (const [dw, dh] of [[1, 0], [0, 1]]) { const g = step(dw, dh); if (g) { [W, H] = g; grew = true; } }
     }
     const { L } = measure(W, H);
     if (!best || L > best.L + 1e-9 || (Math.abs(L - best.L) <= 1e-9 && W * H > best.W * best.H)) best = { L, W, H };
