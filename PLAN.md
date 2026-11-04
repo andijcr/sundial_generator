@@ -109,7 +109,10 @@ longitude + EoT so it reads clock time (analemma per hour line).
 - Wall-clock figure-8s (`anaClock`, rod only, `clockOn` in `state.js`): the analemma traced at a fixed *wall-clock* time,
   using `wallClockHourAngle` (`dial.js`: summer time off first, then `hourAngleAtClock`, which is built on `correctionAt`).
   The curve jumps by 15° of hour angle at each summer-time change; the analemma code breaks the line there and draws a bar
-  across each end. They replace the straight hour lines and the other analemmas. A figure-8's hour number goes at the
+  across each end. Every piece is numbered (summer end, winter end, both sides of each jump), because across a jump one
+  hour's curve continues where another hour's was; summer-time parts are their own lighter layers (`anaRs`, `anaFs`);
+  month names go on every wall-clock 8 (all on the 12 o'clock one, Feb/May/Aug/Nov on the others). They replace the
+  straight hour lines and the other analemmas. A figure-8's hour number goes at the
   summer end of its part on the plate (none on the plate, no number).
 - 10-minute ticks (`dTicks10`, with the wall-clock 8s): on each month-start date line, ticks every 10 wall-clock minutes,
   January to June on the upper side of the line and July to December on the lower side (their lines nearly coincide but

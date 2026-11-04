@@ -563,29 +563,32 @@ export function computeDial(cfg) {
 
   // ---------- Analemmas ----------
   // Hof(i): the hour angle on day i. A jump between two days (summer time starts or ends, 15°) breaks the curve there.
-  function analemma(Hof, hourLabel, monthLabels, dstLabel) {
+  // summer(i), for the wall-clock 8s: summer time is in force on day i. Those parts are drawn lighter, and every piece of the
+  // curve gets its hour number (at the winter end and on both sides of each jump), because where summer time starts or ends
+  // the curve of one hour carries on where another hour's curve was: following a line across a jump changes the hour.
+  function analemma(Hof, hourLabel, monthLabels, dstLabel, summer = null) {
     const Y = yearTable();
     const Hs8 = Y.map((d, i) => Hof(i));
     const pts = Y.map((d, i) => SP(d.decl, Hs8[i]));
     const jump = (i, j) => Math.abs(norm180(Hs8[j] - Hs8[i])) > 5;
-    const rising = [], falling = [], jumps = [];
-    let cur = null, curRising = null;
+    const parts = { R: [], F: [], Rs: [], Fs: [] }, jumps = []; // rising / falling branch, s: summer time
+    let cur = null, curKey = null;
     for (let i = 0; i < Y.length; i++) {
       const j = (i + 1) % Y.length;
       const a = pts[i], b = pts[j];
-      if (a && b && jump(i, j)) jumps.push(a, b); // the two ends of the jump get a bar across the line
+      if (a && b && jump(i, j)) jumps.push(i, j); // the two ends of the jump get a bar across the line (and labels)
       if (!a || !b || jump(i, j) || Math.abs(a[0]) > lim || Math.abs(b[0]) > lim || Math.abs(a[1]) > lim || Math.abs(b[1]) > lim) {
-        if (cur) (curRising ? rising : falling).push(cur);
+        if (cur) parts[curKey].push(cur);
         cur = null; continue;
       }
-      const r = Y[j].decl > Y[i].decl;
-      if (!cur || r !== curRising) {
-        if (cur) (curRising ? rising : falling).push(cur);
-        cur = [a]; curRising = r;
+      const key = (Y[j].decl > Y[i].decl ? 'R' : 'F') + (summer && summer(i) ? 's' : '');
+      if (!cur || key !== curKey) {
+        if (cur) parts[curKey].push(cur);
+        cur = [a]; curKey = key;
       }
       cur.push(b);
     }
-    if (cur) (curRising ? rising : falling).push(cur);
+    if (cur) parts[curKey].push(cur);
     const valid = pts.filter(Boolean);
     if (!valid.length) return;
     const cx = valid.reduce((s, p) => s + p[0], 0) / valid.length;
@@ -604,15 +607,37 @@ export function computeDial(cfg) {
         if ((p[0] - cx) * nx + (p[1] - cy) * ny < 0) { nx = -nx; ny = -ny; }
         const tl = fs * 0.5;
         ticks.push([p, [p[0] + nx * tl, p[1] + ny * tl]]);
-        if (monthLabels) {
+        if (monthLabels === true || (monthLabels && monthLabels.includes(Y[i].m))) { // all months, or the listed ones
           const q = [p[0] + nx * (tl + fs * 0.7), p[1] + ny * (tl + fs * 0.7)];
           if (q[0] > clip.x0 && q[0] < clip.x1 && q[1] > clip.y0 && q[1] < clip.y1) labels.push({ x: q[0], y: q[1], text: months[Y[i].m], cls: 'ana', size: 0.6 });
         }
       }
     }
+    const onPlate = (q) => q && q[0] >= clip.x0 && q[0] <= clip.x1 && q[1] >= clip.y0 && q[1] <= clip.y1;
+    if (hourLabel && summer) {
+      // the winter (shortest shadow) end of the part on the plate gets the number too
+      let k = -1;
+      Y.forEach((d, i) => { if (onPlate(pts[i]) && (k < 0 || d.decl < Y[k].decl)) k = i; });
+      if (k >= 0) {
+        const p = pts[k], dx = p[0] - cx, dy = p[1] - cy, n = Math.hypot(dx, dy) || 1;
+        const q = clampIn([p[0] + (dx / n) * fs * 0.8, p[1] + (dy / n) * fs * 0.8]);
+        labels.push({ x: q[0], y: q[1], text: hourLabel, cls: 'ana', size: 0.8 });
+      }
+      // and each side of a jump: a little way into its own piece, beside the line (away from the 8's middle)
+      for (let k = 0; k < jumps.length; k += 2) {
+        for (const [e, inward] of [[jumps[k], (jumps[k] + Y.length - 3) % Y.length], [jumps[k + 1], (jumps[k + 1] + 3) % Y.length]]) {
+          const p = pts[e], q0 = pts[inward];
+          if (!onPlate(p) || !q0) continue;
+          const tx = q0[0] - p[0], ty = q0[1] - p[1], tn = Math.hypot(tx, ty) || 1;
+          let nx = -ty / tn, ny = tx / tn;
+          if ((p[0] - cx) * nx + (p[1] - cy) * ny < 0) { nx = -nx; ny = -ny; }
+          const q = clampIn([p[0] + (tx / tn) * fs * 1.2 + nx * fs * 0.7, p[1] + (ty / tn) * fs * 1.2 + ny * fs * 0.7]);
+          labels.push({ x: q[0], y: q[1], text: hourLabel, cls: 'ana', size: 0.7 });
+        }
+      }
+    }
     if (hourLabel) {
       // put the hour number beyond the summer (longest shadow) end of the part of the 8 that is on the plate; none on the plate, no label
-      const onPlate = (q) => q && q[0] >= clip.x0 && q[0] <= clip.x1 && q[1] >= clip.y0 && q[1] <= clip.y1;
       let k = -1;
       Y.forEach((d, i) => { if (onPlate(pts[i]) && (k < 0 || d.decl > Y[k].decl)) k = i; });
       if (k >= 0) {
@@ -629,21 +654,25 @@ export function computeDial(cfg) {
     }
     // a bar across the curve at each end of a summer-time jump, so the change dates are visible
     for (let k = 0; k < jumps.length; k += 2) {
-      const [p, q] = [jumps[k], jumps[k + 1]];
+      const [p, q] = [pts[jumps[k]], pts[jumps[k + 1]]];
       for (const e of [p, q]) {
         const i = pts.indexOf(e), o2 = pts[(i + Y.length + (e === p ? -1 : 1)) % Y.length] || e;
         const tx = e[0] - o2[0], ty = e[1] - o2[1], tn = Math.hypot(tx, ty) || 1, bl = fs * 0.45;
         ticks.push([[e[0] - (ty / tn) * bl, e[1] + (tx / tn) * bl], [e[0] + (ty / tn) * bl, e[1] - (tx / tn) * bl]]);
       }
     }
-    add('anaR', 'anaR', clipAll(rising, clip));
-    add('anaF', 'anaF', clipAll(falling, clip), labels);
+    add('anaR', 'anaR', clipAll(parts.R, clip));
+    add('anaF', 'anaF', clipAll(parts.F, clip), labels);
+    if (summer) { add('anaRs', 'anaRs', clipAll(parts.Rs, clip)); add('anaFs', 'anaFs', clipAll(parts.Fs, clip)); }
     add('anaTicks', 'tick', clipAll(ticks, clip));
   }
   const Y8 = yearTable(), mean = (H0) => (i) => H0 + 0.25 * Y8[i].eot; // a fixed mean (zone) time: the equation of time only
   if (clock) {
     // what a wall clock (a phone) shows, summer time included: one 8 per clock hour, with a jump at each change date
-    for (let h = 0; h < 24; h++) analemma((i) => wallClockHourAngle(i, h * 60, lon, tz, o.dst), hourText(h), h === 12, null);
+    // month names: all of them on the 12 o'clock 8, and February, May, August and November (one a season) on the others, so the
+    // branch that holds today's date can be found on any 8 without crowding the winter end, where they all meet
+    const sf = summerFlags(tz, o.dst);
+    for (let h = 0; h < 24; h++) analemma((i) => wallClockHourAngle(i, h * 60, lon, tz, o.dst), hourText(h), h === 12 ? true : [1, 4, 7, 10], null, (i) => sf[i]);
   } else {
     const noonCount = (o.anaMeanNoon ? 1 : 0) + (o.anaZoneNoon || o.anaHours ? 1 : 0);
     if (o.anaMeanNoon) analemma(mean(0), noonCount > 1 ? t('meanNoonShort') : null, true, null);

@@ -1149,14 +1149,14 @@ test('wall-clock figure-8s: rod only, they replace the other time lines, break a
   assert.equal(clockOn(sanitize({ ...DEFAULTS, anaClock: true, gRod: false }).s), false);
   assert.equal(dstLabelsApply(sanitize({ ...DEFAULTS, anaClock: true, hZone: true }).s), false, 'no +1 h labels: summer time is in the curves');
   // summer time breaks each 8 into more pieces, with a bar at each end of a jump; without summer time there is no jump
-  const pieces = (dst) => { const d = buildDial(sanitize({ ...DEFAULTS, anaClock: true, dst }).s, t); return d.layers.filter((l) => /^ana[RF]$/.test(l.id)).reduce((n, l) => n + l.lines.length, 0); };
+  const pieces = (dst) => { const d = buildDial(sanitize({ ...DEFAULTS, anaClock: true, dst }).s, t); return d.layers.filter((l) => /^ana[RF]s?$/.test(l.id)).reduce((n, l) => n + l.lines.length, 0); };
   const bars = (dst) => buildDial(sanitize({ ...DEFAULTS, anaClock: true, anaMonthTicks: false, dst }).s, t).layers.filter((l) => l.id === 'anaTicks').reduce((n, l) => n + l.lines.length, 0);
   assert.ok(pieces('EU') > pieces('none'), `${pieces('EU')} pieces with summer time, ${pieces('none')} without`);
   assert.equal(bars('none'), 0, 'no jump without summer time');
   assert.ok(bars('EU') >= 8, 'bars at the jumps');
   // the curve passes where the shadow is at that wall-clock time: 12:00 on 15 July (summer time) in Rome
   const { s } = sanitize({ ...DEFAULTS, anaClock: true }), dial = buildDial(s, t);
-  const pts8 = dial.layers.filter((l) => /^ana[RF]$/.test(l.id)).flatMap((l) => l.lines.flat());
+  const pts8 = dial.layers.filter((l) => /^ana[RF]s?$/.test(l.id)).flatMap((l) => l.lines.flat());
   for (const [mo, d, h] of [[6, 15, 16], [0, 15, 15], [3, 20, 17]]) { // summer time, winter time, summer time
     const sun = sunAt(utcFromCivil(REF_YEAR, mo, d, h, 0, 1, 'EU'), s.lat, s.lon), S = shadowPoint(sun.vec, dial.L, dial.frame);
     assert.ok(S[0] > dial.clip.x0 && S[0] < dial.clip.x1 && S[1] > dial.clip.y0 && S[1] < dial.clip.y1, 'on the plate');
@@ -1225,4 +1225,36 @@ test('wall-clock dial: the info sheet checks the 12 o\'clock figure-8, and the 1
   const dash = (k) => (css.match(new RegExp(`\\.l-${k}\\{[^}]*stroke-dasharray:([^;}]+)`)) || [])[1];
   assert.ok(dash('hourFine') && dash('zoneFine'), 'the 10-minute lines are dashed in black and white');
   assert.equal(new Set(['hourFine', 'zoneFine', 'zone', 'zoneMinor'].map(dash)).size, 3, 'distinct from each other and from the zone lines (zone and its half hours share theirs)');
+});
+
+test('wall-clock 8s: every piece is numbered (winter end, both sides of each jump), month names on every 8, summer parts lighter', () => {
+  const t = makeT('en');
+  // the mock-up that misled: Rome, south wall, L = 29 mm on a 285 x 174 plate
+  const { s } = sanitize({ ...DEFAULTS, D: 0, anaClock: true, auto: false, L: 29, plateW: 285, plateH: 174, fx: 142.5, fy: 60 });
+  const dial = buildDial(s, t), labels = dial.layers.flatMap((l) => l.labels), fs = dial.fontSize, Y = yearTable();
+  const fr = dial.frame, at = (i, h) => shadowPoint(sunVector(Y[i].decl, wallClockHourAngle(i, h * 60, s.lon, s.tz, s.dst), s.lat), dial.L, fr);
+  const near12 = (P, txt) => labels.some((lb) => lb.text === txt && Math.hypot(lb.x - P[0], lb.y - P[1]) < 3 * fs);
+  // where summer time ends (25 October 2027 is the first day of winter time), the 13 o'clock curve stops and the 12 o'clock one
+  // starts at nearly the same place: each end is labelled with its own hour, so following the line no longer changes the hour
+  const last = dayOfYear(9, 30), first = last + 1; // 30 and 31 October 2027: the last Sunday of October is the 31st
+  for (const [i, h] of [[last, 13], [first, 12], [last, 12], [first, 11]]) {
+    const P = at(i, h);
+    if (P[0] < dial.clip.x0 || P[0] > dial.clip.x1 || P[1] < dial.clip.y0 || P[1] > dial.clip.y1) continue;
+    assert.ok(near12(P, String(h)), `the ${h} o'clock curve is numbered at the October change (day ${i})`);
+  }
+  // every hour with a curve on the plate is numbered at least at both ends
+  for (const h of [10, 11, 12, 13, 14]) assert.ok(labels.filter((lb) => lb.text === String(h)).length >= 2, `hour ${h}: numbered at both ends`);
+  // month names: all of them on the 12 o'clock 8, February / May / August / November on the others
+  const names = (m) => labels.filter((lb) => lb.text === t('monthsShort')[m]).length;
+  assert.ok(names(0) <= 1 && names(10) >= 4, `Jan ${names(0)} times (the 12 o'clock 8 only), Nov ${names(10)} times (every 8)`);
+  // summer-time parts are in their own layers, and only summer days are in them
+  const sumPts = dial.layers.filter((l) => /^ana[RF]s$/.test(l.id)).flatMap((l) => l.lines.flat()), winPts = dial.layers.filter((l) => /^ana[RF]$/.test(l.id)).flatMap((l) => l.lines.flat());
+  const onto = (pts, P) => Math.min(...pts.map((q) => Math.hypot(q[0] - P[0], q[1] - P[1])));
+  const july = at(dayOfYear(6, 15), 14), jan = at(dayOfYear(0, 15), 12);
+  assert.ok(onto(sumPts, july) < 0.6 && onto(winPts, jan) < 0.6, 'July on a summer part, January on a winter part');
+  const css = faceSheet(dial, { s: { ...s, ink: 'bw' }, t }).css, dash = (k) => (css.match(new RegExp(`\\.l-${k}\\{[^}]*stroke-dasharray:([^;}]+)`)) || [])[1] || 'solid';
+  assert.equal(new Set(['anaR', 'anaF', 'anaRs', 'anaFs'].map(dash)).size, 4, 'four distinct black-and-white patterns');
+  // the other figure-8s are as before: no summer layers, numbers only at the summer end
+  const other = buildDial(sanitize({ ...DEFAULTS, anaHours: true }).s, t);
+  assert.ok(!other.layers.some((l) => /^ana[RF]s$/.test(l.id)), 'no summer layers without the wall-clock 8s');
 });
