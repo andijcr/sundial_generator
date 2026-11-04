@@ -1152,8 +1152,9 @@ test('wall-clock figure-8s: rod only, they replace the other time lines, break a
   const pieces = (dst) => { const d = buildDial(sanitize({ ...DEFAULTS, anaClock: true, dst }).s, t); return d.layers.filter((l) => /^ana[RF]s?$/.test(l.id)).reduce((n, l) => n + l.lines.length, 0); };
   const bars = (dst) => buildDial(sanitize({ ...DEFAULTS, anaClock: true, anaMonthTicks: false, dst }).s, t).layers.filter((l) => l.id === 'anaTicks').reduce((n, l) => n + l.lines.length, 0);
   assert.ok(pieces('EU') > pieces('none'), `${pieces('EU')} pieces with summer time, ${pieces('none')} without`);
-  assert.equal(bars('none'), 0, 'no jump without summer time');
-  assert.ok(bars('EU') >= 8, 'bars at the jumps');
+  // the month marks are always on for these 8s, so the bars are what summer time adds
+  assert.ok(bars('EU') - bars('none') >= 8, 'bars at the jumps, none without summer time');
+  assert.ok(!buildDial(sanitize({ ...DEFAULTS, anaClock: true, dst: 'none' }).s, t).layers.some((l) => /^ana[RF]s$/.test(l.id)), 'no summer layers without summer time');
   // the curve passes where the shadow is at that wall-clock time: 12:00 on 15 July (summer time) in Rome
   const { s } = sanitize({ ...DEFAULTS, anaClock: true }), dial = buildDial(s, t);
   const pts8 = dial.layers.filter((l) => /^ana[RF]s?$/.test(l.id)).flatMap((l) => l.lines.flat());
@@ -1233,15 +1234,24 @@ test('wall-clock 8s: every piece is numbered (winter end, both sides of each jum
   const { s } = sanitize({ ...DEFAULTS, D: 0, anaClock: true, auto: false, L: 29, plateW: 285, plateH: 174, fx: 142.5, fy: 60 });
   const dial = buildDial(s, t), labels = dial.layers.flatMap((l) => l.labels), fs = dial.fontSize, Y = yearTable();
   const fr = dial.frame, at = (i, h) => shadowPoint(sunVector(Y[i].decl, wallClockHourAngle(i, h * 60, s.lon, s.tz, s.dst), s.lat), dial.L, fr);
-  const near12 = (P, txt) => labels.some((lb) => lb.text === txt && Math.hypot(lb.x - P[0], lb.y - P[1]) < 3 * fs);
-  // where summer time ends (25 October 2027 is the first day of winter time), the 13 o'clock curve stops and the 12 o'clock one
-  // starts at nearly the same place: each end is labelled with its own hour, so following the line no longer changes the hour
-  const last = dayOfYear(9, 30), first = last + 1; // 30 and 31 October 2027: the last Sunday of October is the 31st
+  const near12 = (P, txt) => labels.some((lb) => lb.text === txt && Math.hypot(lb.x - P[0], lb.y - P[1]) < 2 * fs);
+  // where summer time ends, the 13 o'clock curve stops and the 12 o'clock one starts at nearly the same place: each end is
+  // labelled with its own hour, so following the line no longer changes the hour. In 2027 summer time ends on Sunday 31 October
+  // (at 01:00 UTC), so 30 October is its last noon and 31 October the first noon of winter time.
+  const last = dayOfYear(9, 30), first = last + 1;
+  let checked = 0;
   for (const [i, h] of [[last, 13], [first, 12], [last, 12], [first, 11]]) {
     const P = at(i, h);
     if (P[0] < dial.clip.x0 || P[0] > dial.clip.x1 || P[1] < dial.clip.y0 || P[1] > dial.clip.y1) continue;
+    checked++;
     assert.ok(near12(P, String(h)), `the ${h} o'clock curve is numbered at the October change (day ${i})`);
   }
+  assert.ok(checked >= 3, `the change points are on this plate (${checked} checked)`);
+  // the numbers rank as hour numbers, not as month names: they keep their place against date labels
+  const withDates = buildDial(sanitize({ ...s, dTicks10: true, dSolEq: true }).s, t).layers.flatMap((l) => l.labels);
+  assert.ok(withDates.some((lb) => lb.text === '13' && Math.hypot(lb.x - at(last, 13)[0], lb.y - at(last, 13)[1]) < 2 * fs), 'still by its jump with the date lines on');
+  // with the month marks switched off, the wall-clock 8s keep theirs (they are read by the date)
+  assert.ok(buildDial(sanitize({ ...s, anaMonthTicks: false }).s, t).layers.flatMap((l) => l.labels).some((lb) => lb.month), 'month names stay');
   // every hour with a curve on the plate is numbered at least at both ends
   for (const h of [10, 11, 12, 13, 14]) assert.ok(labels.filter((lb) => lb.text === String(h)).length >= 2, `hour ${h}: numbered at both ends`);
   // month names: all of them on the 12 o'clock 8, February / May / August / November on the others
