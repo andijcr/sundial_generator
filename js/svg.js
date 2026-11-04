@@ -3,8 +3,8 @@
 //
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
-import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections } from './astro.js';
-import { absoluteDeclination, clockOn } from './dial.js';
+import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections, sunVector } from './astro.js';
+import { absoluteDeclination, clockOn, tipOn, wallFrame, shadowPoint, wallClockHourAngle, yearTable, dot, sunState, SUN, parseHorizon } from './dial.js';
 import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
@@ -25,12 +25,13 @@ const LSTYLE = {
   hour: ['#1b1b1b', 1.6], hourMinor: ['#1b1b1b', 0.7], hourFine: ['#1b1b1b', 0.3], hourExt: ['#1b1b1b', 0.5, '2 1.5'],
   zone: ['#1f5fa8', 1.4], zoneMinor: ['#1f5fa8', 0.6], zoneFine: ['#1f5fa8', 0.3], zoneExt: ['#1f5fa8', 0.5, '2 1.5'],
   anaR: ['#c0392b', 1], anaF: ['#c0392b', 1, '3 1.5'], anaRs: ['#c0392b', 0.55], anaFs: ['#c0392b', 0.55, '3 1.5'], tick: ['#c0392b', 1], clockTick: ['#2a7f62', 0.7],
+  anaRt: ['#1f5fa8', 1], anaFt: ['#1f5fa8', 1, '3 1.5'], clockTickTip: ['#1f5fa8', 0.7], dateTip: ['#1f5fa8', 0.6, '4 1.5'], // read at the tip (two-point rod)
   date: ['#2a7f62', 1.1], dateMinor: ['#2a7f62', 0.6, '4 1.5'],
   ital: ['#8e44ad', 0.8], bab: ['#d35400', 0.8],
   az: ['#7a7a7a', 0.6, '1 1.5'], alt: ['#7a7a7a', 0.6, '1 1.5'],
   construct: ['#9a9a9a', 0.6, '6 2 1 2'],
 };
-const TCOLOR = { hour: '#1b1b1b', zone: '#1f5fa8', dst: '#a0700b', ana: '#c0392b', date: '#2a7f62', dateMinor: '#2a7f62', ital: '#8e44ad', bab: '#d35400', az: '#666', alt: '#666' };
+const TCOLOR = { hour: '#1b1b1b', zone: '#1f5fa8', dst: '#a0700b', ana: '#c0392b', anaTip: '#1f5fa8', dateTip: '#1f5fa8', date: '#2a7f62', dateMinor: '#2a7f62', ital: '#8e44ad', bab: '#d35400', az: '#666', alt: '#666' };
 
 // Black-and-white print: no colours, so the line families are told apart by weight and dash pattern
 // (the pattern is in multiples of 4·sw). [weight multiplier, dash]
@@ -38,6 +39,7 @@ const BW_STYLE = {
   hour: [1.6], hourMinor: [0.7], hourFine: [0.3, '1 1'], hourExt: [0.5, '2 1.5'],
   zone: [1.3, '7 2.5'], zoneMinor: [0.6, '7 2.5'], zoneFine: [0.3, '3.5 1.5'], zoneExt: [0.5, '1 2'],
   anaR: [1], anaF: [1, '3 1.5'], anaRs: [0.55, '8 1'], anaFs: [0.55, '2 1.5 0.5 1.5'], tick: [1], clockTick: [0.7], // ticks are a few mm long: solid, like the figure-8s' month ticks
+  anaRt: [1.4, '12 2'], anaFt: [1.4, '5 1 1 1'], clockTickTip: [1.1], dateTip: [0.6, '1.5 1.5'], // read at the tip: heavier
   date: [1.1], dateMinor: [0.6, '4 1.5'],
   ital: [0.8, '9 2 1.5 2'], bab: [0.8, '3 3'],
   az: [0.5, '1 1.5'], alt: [0.5, '0.6 2.4'],
@@ -59,7 +61,7 @@ export function dialCss(material, sw, bw = false) {
   }
   css += `.t{font-family:${material === 'tile' ? 'Georgia,serif' : 'Helvetica,Arial,sans-serif'};text-anchor:middle;dominant-baseline:central}`;
   for (const [k, c] of Object.entries(TCOLOR)) css += `.t-${k}{fill:${black ? '#000' : c}}`;
-  if (bw && !laser) css += '.t-dst{font-style:italic}'; // summer-time numbers lose their amber: set them in italics
+  if (bw && !laser) css += '.t-dst{font-style:italic}.t-anaTip,.t-dateTip{font-weight:bold}'; // summer-time numbers in italics, tip numbers in bold
   css += `.mark{fill:none;stroke:${black ? line : '#333'};stroke-width:${f(laser ? 0.1 : sw * 1.2)}}`;
   css += `.info{fill:${black ? '#000' : '#555'};font-family:Helvetica,Arial,sans-serif}.motto{fill:${black ? '#000' : '#333'};font-family:Georgia,serif;font-style:italic;text-anchor:middle}`;
   return css;
@@ -215,6 +217,8 @@ export function shadowMarkup(dial, ctx, S, trail) {
       // an oversized rod (rodX times longer) casts rodX times the shadow; the dot below, where its notch's shadow falls, is the reading
       const k = ctx.s.rodX > 1 ? ctx.s.rodX : 1, Sr = [Sc[0] * k, Sc[1] * k];
       out += `<line x1="${X([0, 0])}" y1="${Y([0, 0])}" x2="${X(Sr)}" y2="${Y(Sr)}" stroke="rgba(20,20,30,0.45)" stroke-width="${f(Math.max(dial.L * 0.025, 1.5))}" stroke-linecap="round"/>`;
+      // two-point rod: the tip's shadow is the winter reading, ringed in the tip's colour
+      if (tipOn(ctx.s) && n <= big) out += `<circle cx="${X(Sr)}" cy="${Y(Sr)}" r="${f(fs * 0.8)}" fill="none" stroke="#1f5fa8" stroke-width="${f(fs * 0.12)}"/>`;
     }
     if (n <= big) {
       out += `<circle cx="${X(S)}" cy="${Y(S)}" r="${f(fs * 0.35)}" fill="rgba(20,20,30,0.75)"/>`;
@@ -280,7 +284,7 @@ function textLines(x, y, lines, size, gap = 1.45) {
 function summaryLines(dial, ctx) {
   const { s, t } = ctx;
   const a = dial.angles;
-  const systems = (clockOn(s) ? [t('anaClockShort'), s.dTicks10 && t('dTicks10Short')] // the wall-clock 8s replace the rest
+  const systems = (clockOn(s) ? [t('anaClockShort'), s.dTicks10 && t('dTicks10Short'), tipOn(s) && t('rodTipShort', s.rodX)] // the wall-clock 8s replace the rest
     : [s.hSolar && t('hSolar'), s.hZone && t('hZone'), s.anaMeanNoon && t('anaMeanNoon'), (s.anaZoneNoon || s.anaHours) && (s.anaHours ? t('anaHours') : t('anaZoneNoon'))]).filter(Boolean).join(' · ');
   return [
     `${ctx.place ? ctx.place + ' — ' : ''}${latLon(s)}, UTC${s.tz >= 0 ? '+' : ''}${s.tz} (${s.dst})`,
@@ -568,7 +572,7 @@ export function gnomonSheet(dial, ctx) {
     g += dimH(x0, xf, oy + WD + 9, oy + WD, `${kRod}× = ${mm(len)}`);
     g += dimH(xn, xf, oy + WD + 19, oy + WD, `L = ${mm(L)}`);
     const cap = x <= M ? 90 : Math.round(Math.min(90, Math.max(45, (xe - x0 + 30) / 1.6))); // a row of its own: the full width
-    const longLines = wrapText(`${t('rod')}: ${t('rodLongNote', kRod)}`, cap);
+    const longLines = wrapText(`${t('rod')}: ${t(tipOn(s) ? 'rodTipNote' : 'rodLongNote', kRod)}`, cap);
     g += textLines(x0, oy + WD + 28, longLines, 3.4);
     const rightL = Math.max(xe + 4, xf + 3 + (`${EMB} mm ${t('rodEmbed')}`).length * DT_W, x0 + Math.max(...longLines.map((l) => l.length)) * 1.6);
     return { g, next: rightL + 12, right: rightL, bottom: oy + WD + 28 + longLines.length * 3.4 * 1.45, ownRow: !ctx.maxW };
@@ -638,7 +642,7 @@ export function infoSheet(dial, ctx) {
     platePos(dial, s, t).join(' · '),
   ], 5);
   const steps = [...t('steps')];
-  if (clockOn(s)) steps[steps.length - 1] = t('stepClock'); // no solar 12 line to check against: the 12 o'clock figure-8 instead
+  if (clockOn(s)) steps[steps.length - 1] = t(tipOn(s) ? 'stepClockTip' : 'stepClock'); // no solar 12 line to check against: the 12 o'clock figure-8 instead
   block([{ t: t('stepsTitle'), b: true }, ...steps.map((st, i) => `${i + 1}. ${st}`)], 4);
   // corrections table
   inner += textLines(x, y, [{ t: t('tableTitle'), b: true }], 3.6);
@@ -862,6 +866,140 @@ export function sunChartMarker(chart, days, min) {
   let out = `<path class="sc-now" d="M${f(cx)} ${f(py)}V${f(py + ph)}"/>`;
   if (min >= chart.t0 && min <= chart.t1) { const cy = chart.Y(min); out += `<path class="sc-now" d="M${f(px)} ${f(cy)}H${f(px + pw)}"/><circle class="sc-now" cx="${f(cx)}" cy="${f(cy)}" r="1.4"/>`; }
   return out;
+}
+
+// ---------------- Shadow test sheet ----------------
+
+/** The test sheet's drawing box, mm: it fits one A4 page inside a 12 mm printer margin, in both languages. */
+export const TEST_BOX = { w: 166, h: 145 };
+
+/** The wall-direction offsets (deg, as the wall's D is set) drawn on the test sheet's ladders. */
+export const TEST_OFFSETS = [-10, -5, -2, 0, 2, 5, 10];
+
+/**
+ * Where the rod tip's shadow falls on day i (of the reference year) at wall-clock time `minutes`, for the dial's rod (L) on a
+ * wall turned `dD` degrees from the set direction (in the page's convention: from the equator side, west +). Dial coords, mm,
+ * or null when the sun is not on the wall.
+ */
+export function testShadow(dial, s, i, minutes, dD = 0, L = dial.L, summer = undefined) {
+  const d = yearTable()[i], fr = dD ? wallFrame(absoluteDeclination(s.lat, s.D + dD)) : dial.frame;
+  return shadowPoint(sunVector(d.decl, wallClockHourAngle(i, minutes, s.lon, s.tz, s.dst, summer), s.lat), L, fr);
+}
+
+// The test sheet is fitted to the times when the sun is well onto the wall: at least this far off its plane (deg) and 5° up,
+// for two hours or more, relaxed in steps for a date when the sun only grazes the wall (the squarer the sun, the better the marks). Nearer the plane the shadows run off towards infinity.
+const TEST_OFF_WALL = [45, 30, 15, 8];
+/**
+ * Wall-clock minutes of day i, every 10, when the sun is well onto the wall (see TEST_OFF_WALL) and not behind the horizon
+ * profile; [] if it barely reaches it. summer: whether summer time is in force that day (default: the reference year's).
+ */
+function testGoodTimes(dial, s, i, summer = undefined) {
+  const d = yearTable()[i], hz = parseHorizon(s.horizon || '');
+  for (const deg of TEST_OFF_WALL) {
+    const out = [];
+    for (let m = 0; m < 1440; m += 10) {
+      const v = sunVector(d.decl, wallClockHourAngle(i, m, s.lon, s.tz, s.dst, summer), s.lat);
+      if (v[2] > Math.sin(5 * Math.PI / 180) && sunState(v, dial.frame, hz, deg) === SUN.lit) out.push(m);
+    }
+    if (out.length >= (deg === TEST_OFF_WALL[TEST_OFF_WALL.length - 1] ? 1 : 12)) return out; // two hours of good sun, or at the last step anything at all
+  }
+  return [];
+}
+
+/**
+ * The rod length (mm) for the test sheet: the longest, in whole 5 mm, whose shadows at the good times of day i (testGoodTimes,
+ * with F placed to suit) fit a w x h box. A wall-direction or tilt error shows the same whatever the rod, and a longer rod
+ * spreads the dots: a short dial rod would crowd them near noon. Held to 10..200 mm.
+ */
+export function testRodLength(dial, s, i, w, h, summer = undefined, good = testGoodTimes(dial, s, i, summer)) {
+  if (!good.length) return Math.round(dial.L); // the sun barely reaches the wall: nothing to fit, the dial's own rod
+  const pts = [[0, 0], ...good.map((m) => testShadow(dial, s, i, m, 0, 1, summer)).filter(Boolean)];
+  const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+  const span = Math.max((Math.max(...xs) - Math.min(...xs)) / (w - 16), (Math.max(...ys) - Math.min(...ys)) / (h - 16), 1e-6);
+  return Math.min(200, Math.max(10, Math.floor(1 / span / 5) * 5));
+}
+
+/** CSS of the test sheet (black and white: grid, path and dots in black, told apart by weight and dash). */
+function testCss(bw) {
+  const ink = bw ? '#000' : '#1b1b1b', grid = bw ? '#000' : '#b9c4cf', lad = bw ? '#000' : '#1f5fa8', path = bw ? '#000' : '#c0392b';
+  return `.tg5{stroke:${grid};stroke-width:0.1;fill:none${bw ? ';stroke-dasharray:0.3 1.2' : ''}}.tg10{stroke:${grid};stroke-width:0.25;fill:none}` +
+    `.tpl{stroke:${ink};stroke-width:0.3;fill:none;stroke-dasharray:3 1.5}.tf{stroke:${ink};stroke-width:0.35;fill:none}` +
+    `.tpath{stroke:${path};stroke-width:0.35;fill:none}.tdot{fill:${path}}.tlad{stroke:${lad};stroke-width:0.25;fill:none}.tladdot{fill:${lad}}` +
+    `.tt{font-family:Helvetica,Arial,sans-serif;fill:${ink}}.tts{font-size:2.4px}.ttl{font-size:2.2px;fill:${lad}}`;
+}
+
+/**
+ * A one-page sheet to check the dial against the sun, at 1:1 for the dial's own rod: a millimetre grid around F, the rod tip's
+ * shadow path for one day (ctx.day, the reference-year day index) with a dot every 15 minutes of wall-clock time, and every
+ * 30 minutes a ladder of where the dot would be if the wall faced TEST_OFFSETS degrees otherwise. Mount it with F on the rod,
+ * mark the real shadow at a printed time: the ladder dot it lands on is the wall's real direction. Plus a table of the
+ * predicted positions and how to tell a wall-direction error from a tilted rod or a wrong rod length.
+ */
+export function testSheet(dial, ctx) {
+  // ctx.summer: summer time on the actual date (the reference year's change dates differ by up to six days)
+  const { s, t } = ctx, bw = s.ink === 'bw', i = ctx.day ?? 0, summer = ctx.summer;
+  const W = 186, x0 = 10, bx = 10, by = 36, bw2 = TEST_BOX.w, bh = TEST_BOX.h; // the drawing box on the sheet, mm
+  const goodList = testGoodTimes(dial, s, i, summer);
+  const L = ctx.testL || testRodLength(dial, s, i, bw2, bh, summer, goodList), shadow = (m, dD = 0) => testShadow(dial, s, i, m, dD, L, summer);
+  // where the day's shadows are (main direction), to place F so that the middle of the day fits the box
+  const pts = [];
+  for (let m = 0; m < 1440; m += 5) { const p = shadow(m); if (p && Math.abs(p[0]) < 4 * bw2 && Math.abs(p[1]) < 4 * bh) pts.push([m, p]); }
+  // F goes where the good times' shadows fit (long, grazing ones do not decide it)
+  const good = new Set(goodList), mid = pts.filter(([m]) => good.has(m));
+  const xs = [0, ...mid.map(([, p]) => p[0])], ys = [0, ...mid.map(([, p]) => p[1])];
+  const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+  // F on the sheet: the middle of the path's box in the middle of the drawing box, but F itself always inside the box
+  const Fx = Math.min(bx + bw2 - 8, Math.max(bx + 8, bx + bw2 / 2 - cx)), Fy = Math.min(by + bh - 8, Math.max(by + 8, by + bh / 2 + cy));
+  const X = (p) => Fx + p[0], Yd = (p) => Fy - p[1];
+  const inBox = (p) => p && X(p) >= bx && X(p) <= bx + bw2 && Yd(p) >= by && Yd(p) <= by + bh;
+  let g = `<defs><clipPath id="clip-test-box"><rect x="${bx}" y="${by}" width="${bw2}" height="${bh}"/></clipPath></defs>`;
+  // grid: every 5 mm, bold every 10 mm, counted from F
+  let grid = '';
+  for (let k = Math.ceil((bx - Fx) / 5); Fx + k * 5 <= bx + bw2; k++) grid += `<path class="${k % 2 ? 'tg5' : 'tg10'}" d="M${f(Fx + k * 5)} ${by}V${by + bh}"/>`;
+  for (let k = Math.ceil((by - Fy) / 5); Fy + k * 5 <= by + bh; k++) grid += `<path class="${k % 2 ? 'tg5' : 'tg10'}" d="M${bx} ${f(Fy + k * 5)}H${bx + bw2}"/>`;
+  g += `<g clip-path="url(#clip-test-box)">${grid}`;
+  g += `<path class="tpl" d="M${f(Fx)} ${by}V${by + bh}"/>`;
+  // the day's path and the ladders, then the dots on top
+  const path = pts.filter(([, p]) => inBox(p)).map(([, p]) => `${f(X(p))} ${f(Yd(p))}`);
+  if (path.length > 1) g += `<path class="tpath" d="M${path.join('L')}"/>`;
+  let dots = '', table = [];
+  for (let m = 0; m < 1440; m += 15) {
+    const p = shadow(m);
+    if (!inBox(p)) continue;
+    if (m % 30 === 0) {
+      const lad = TEST_OFFSETS.map((dD) => [dD, shadow(m, dD)]).filter(([, q]) => q);
+      g += `<path class="tlad" d="M${lad.map(([, q]) => `${f(X(q))} ${f(Yd(q))}`).join('L')}"/>`;
+      for (const [dD, q] of lad) if (dD) g += `<circle class="tladdot" cx="${f(X(q))}" cy="${f(Yd(q))}" r="${Math.abs(dD) >= 5 ? 0.55 : 0.4}"/>`;
+      // the ladder's ends are labelled on the hours only (the half-hour ladders read the same way)
+      if (m % 60 === 0) for (const [dD, q] of lad) if (Math.abs(dD) === 10) g += `<text class="tt ttl" x="${f(X(q))}" y="${f(Yd(q) - 1)}" style="text-anchor:middle">${dD > 0 ? '+' : '−'}10°</text>`;
+      table.push([fmtHM(m), p]);
+    }
+    dots += `<circle class="tdot" cx="${f(X(p))}" cy="${f(Yd(p))}" r="${m % 30 === 0 ? 0.8 : 0.5}"/>`;
+    if (m % 60 === 0) dots += `<text class="tt tts" x="${f(X(p) + 1.4)}" y="${f(Yd(p) + 3)}">${fmtHM(m)}</text>`; // times on the hours
+  }
+  g += dots + '</g>';
+  g += `<rect class="tf" x="${bx}" y="${by}" width="${bw2}" height="${bh}"/>`;
+  g += `<path class="tf" d="M${f(Fx - 3)} ${f(Fy)}H${f(Fx + 3)}M${f(Fx)} ${f(Fy - 3)}V${f(Fy + 3)}"/><text class="tt tts" x="${f(Fx + 1.5)}" y="${f(Fy - 1.5)}">F</text>`;
+  // text: title and settings above the box; how to use it, the error key and the table below
+  const d = yearTable()[i], dateText = ctx.dateText || `${d.dom} ${t('monthsShort')[d.m]}`;
+  let inner = textLines(x0, 14, [{ t: `${t('title')} — ${t('sheetTest')}`, b: true }], 4.8);
+  inner += textLines(x0, 21, [`${ctx.place ? ctx.place + ' — ' : ''}${latLon(s)} · ${dateText} · D = ${s.D.toFixed(1)}° · ${t('testClock')}`,
+    ...wrapText(t(goodList.length ? 'testRod' : 'testNoSun', L, dial.L.toFixed(0)), 100).map((l) => ({ t: l, b: true }))], 3.2);
+  inner += g;
+  const notes = [t('testHow'), t('testLadder'), t('testKeyWall'), t('testKeyTilt'), t('testKeyLength')].flatMap((n) => wrapText(n, 110));
+  let y = by + bh + 7;
+  inner += textLines(x0, y, notes, 3, 1.4);
+  y += notes.length * 3 * 1.4 + 4;
+  // the predicted positions, x right and y up from F, in up to four columns
+  inner += `<text class="st sb" x="${x0}" y="${f(y)}" font-size="3">${esc(t('testTable'))}</text>`;
+  y += 4.5;
+  const per = Math.ceil(table.length / 4);
+  table.forEach(([hm, p], k) => {
+    const col = Math.floor(k / per), row = k % per;
+    inner += `<text class="st" x="${f(x0 + col * 43)}" y="${f(y + row * 3.6)}" font-size="2.7">${hm}  x ${f(p[0])}  y ${f(p[1])}</text>`;
+  });
+  const H = Math.ceil(y + per * 3.6 + 3);
+  return { W, H, inner, css: testCss(bw), name: 'test', bw };
 }
 
 // ---------------- Tiling ----------------

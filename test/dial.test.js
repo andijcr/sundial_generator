@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG, norm180 } from '../js/astro.js';
 import { wallClockHourAngle, wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, wallPresetsFor, wallDirectionName } from '../js/state.js';
+import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, tipOn, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
-import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt, sunAt, utcFromCivil, REF_YEAR, dayOfYear } from '../js/astro.js';
-import { gnomonSheetFor, esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
+import { hourAngleAtClock, fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt, sunAt, utcFromCivil, REF_YEAR, dayOfYear } from '../js/astro.js';
+import { testSheet, testShadow, testRodLength, TEST_OFFSETS, TEST_BOX, gnomonSheetFor, esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX, yearTable } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -127,7 +127,7 @@ test('sheets render for many configurations without NaN', () => {
     { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
-    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { anaClock: true, dTicks10: true }, { anaClock: true, dTicks10: true, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { anaClock: true, gRod: false, gBlade: true }, { hTen: true, hZone: true, hQuarter: true }, { anaClock: true, dTicks10: true, material: 'laser', plateW: 200, plateH: 150 }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
+    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { anaClock: true, dTicks10: true }, { anaClock: true, dTicks10: true, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { anaClock: true, gRod: false, gBlade: true }, { hTen: true, hZone: true, hQuarter: true }, { anaClock: true, dTicks10: true, material: 'laser', plateW: 200, plateH: 150 }, { anaClock: true, rodTip: true, rodX: 2, dTicks10: true, dMonths: true }, { anaClock: true, rodTip: true, rodX: 3, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 20 }, { anaClock: true, rodTip: true, rodX: 1.5, dst: 'none' }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
@@ -1267,4 +1267,119 @@ test('wall-clock 8s: every piece is numbered (winter end, both sides of each jum
   // the other figure-8s are as before: no summer layers, numbers only at the summer end
   const other = buildDial(sanitize({ ...DEFAULTS, anaHours: true }).s, t);
   assert.ok(!other.layers.some((l) => /^ana[RF]s$/.test(l.id)), 'no summer layers without the wall-clock 8s');
+});
+
+test('shadow test: predictions match the textbook rod-on-a-south-wall formulas, and an 8° east wall explains the Rome photo', () => {
+  const t = makeT('en');
+  const { s } = sanitize({ ...DEFAULTS, D: 0, auto: false, L: 29, plateW: 285, plateH: 174, fx: 142.5, fy: 60 });
+  const dial = buildDial(s, t);
+  // a rod L perpendicular to a south wall: x = L tan(azimuth from south), y = -L tan(altitude) / cos(azimuth from south)
+  for (const [mo, d, h, mi] of [[10, 4, 11, 26], [0, 15, 10, 0], [5, 21, 15, 30], [8, 23, 9, 0]]) {
+    const sun = sunAt(utcFromCivil(REF_YEAR, mo, d, h, mi, s.tz, s.dst), s.lat, s.lon), az = (sun.az - 180) * DEG, alt = sun.alt * DEG;
+    const p = testShadow(dial, s, dayOfYear(mo, d), h * 60 + mi);
+    near(p[0], dial.L * Math.tan(az), 0.4, `x ${d}/${mo + 1} ${h}:${mi}`);
+    near(p[1], -dial.L * Math.tan(alt) / Math.cos(az), 0.4, `y ${d}/${mo + 1} ${h}:${mi}`);
+  }
+  // the photo: on 4 November at 11:26 the shadow fell on the plumb line. That is where it falls if the wall faces 8° east of south.
+  const nov = dayOfYear(10, 4), m = 11 * 60 + 26;
+  near(testShadow(dial, s, nov, m)[0], -4.0, 0.2, 'a south wall puts it 4 mm left of the plumb line');
+  near(testShadow(dial, s, nov, m, -8)[0], 0, 0.3, 'a wall 8° east of south puts it on the plumb line');
+  // the ladders are the same shadow for the turned wall
+  const turned = buildDial(sanitize({ ...s, D: 5 }).s, t);
+  const a = testShadow(dial, s, nov, 600, 5), b = testShadow(turned, { ...s, D: 5 }, nov, 600);
+  near(a[0], b[0], 1e-9); near(a[1], b[1], 1e-9);
+});
+
+test('shadow test sheet: one A4 page, the dots and the table are the predictions for its rod, black and white clean', () => {
+  const colours = /#(?!000\b|fff\b)[0-9a-fA-F]{3,6}\b/;
+  for (const lang of ['en', 'it']) {
+    for (const [c, mo, d] of [[{ D: 0, auto: false, L: 29, plateW: 285, plateH: 174, fx: 142.5, fy: 60 }, 10, 4], [{}, 5, 21], [{ lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 30 }, 0, 10], [{ D: -80 }, 2, 21], [{ plateW: 150, plateH: 120 }, 11, 21]]) {
+      for (const ink of ['color', 'bw']) {
+        const { s } = sanitize({ ...DEFAULTS, ...c, lang, ink }), t = makeT(lang), dial = buildDial(s, t), i = dayOfYear(mo, d);
+        const sh = testSheet(dial, { s, t, place: 'x', day: i, dateText: 'x' }), svg = svgDoc(sh), tag = `${lang} ${ink} ${JSON.stringify(c)}`;
+        assert.ok(!/NaN|undefined|Infinity/.test(svg), tag);
+        assert.equal(tileLayout(sh.W, sh.H, 'A4', 0, { margin: 12 }).pages, 1, `${tag}: one A4 page`);
+        if (ink === 'bw') assert.ok(!colours.test(svg), `${tag}: ${(svg.match(colours) || [])[0]}`);
+        const L = testRodLength(dial, s, i, TEST_BOX.w, TEST_BOX.h);
+        assert.ok(L >= 10 && L <= 200 && L % 5 === 0, `${tag}: rod ${L}`);
+        assert.ok(svg.includes(esc(t('testRod', L, dial.L.toFixed(0))).split(' ').slice(0, 6).join(' ')), `${tag}: the sheet names its rod`);
+        assert.ok(!svg.includes(esc(t('testNoSun', L, dial.L.toFixed(0))).split(' ').slice(0, 6).join(' ')), `${tag}: the sun reaches this wall`);
+        // every table row is the prediction for that rod
+        const rows = [...svg.matchAll(/>(\d\d):(\d\d)  x (-?[\d.]+)  y (-?[\d.]+)</g)];
+        assert.ok(rows.length >= 4, `${tag}: ${rows.length} table rows`);
+        for (const r of rows) {
+          const p = testShadow(dial, s, i, +r[1] * 60 + +r[2], 0, L);
+          near(+r[3], p[0], 0.01); near(+r[4], p[1], 0.01);
+        }
+      }
+    }
+  }
+  assert.deepEqual(TEST_OFFSETS, [-10, -5, -2, 0, 2, 5, 10]);
+  // a date when the sun only grazes the wall (a north-facing wall at the tropic of Capricorn in midsummer, sun near overhead) says so
+  const { s } = sanitize({ ...DEFAULTS, lat: -23, lon: 0, tz: 0, dst: 'none', D: 0 }), t = makeT('en'), dial = buildDial(s, t), i = dayOfYear(11, 21);
+  const svg = svgDoc(testSheet(dial, { s, t, day: i, dateText: 'x' }));
+  if (!testShadow(dial, s, i, 12 * 60) || testRodLength(dial, s, i, TEST_BOX.w, TEST_BOX.h) === Math.round(dial.L)) assert.ok(svg.includes(esc(t('testNoSun', 0, dial.L.toFixed(0))).split(' ').slice(0, 8).join(' ')), 'says the sun only grazes the wall');
+  assert.ok(!/NaN|undefined|Infinity/.test(svg));
+});
+
+test('two-point rod: winter time at the tip (k x L, blue), summer time at the notch (L, red), and only where it applies', () => {
+  const t = makeT('en');
+  const base = { ...DEFAULTS, D: 0, anaClock: true, dTicks10: true, auto: false, L: 29, plateW: 285, plateH: 174, fx: 142.5, fy: 60 };
+  const { s } = sanitize({ ...base, rodTip: true, rodX: 2 }), dial = buildDial(s, t), Y = yearTable(), k = s.rodX;
+  assert.ok(tipOn(s));
+  for (const c of [{ rodTip: true, rodX: 1 }, { rodTip: true, rodX: 2, anaClock: false }, { rodTip: true, rodX: 2, gRod: false, gBlade: true }, { rodTip: false, rodX: 2 }]) {
+    const sc = sanitize({ ...base, ...c }).s;
+    assert.ok(!tipOn(sc) && !buildDial(sc, t).layers.some((l) => /Tip$|^ana[RF]t$/.test(l.id)), `no tip curves for ${JSON.stringify(c)}`);
+  }
+  const ptsOf = (re) => dial.layers.filter((l) => re.test(l.id)).flatMap((l) => l.lines.flat());
+  const onto = (pts, P) => Math.min(...pts.map((q) => Math.hypot(q[0] - P[0], q[1] - P[1])));
+  const at = (mo, d, h, Lx) => shadowPoint(sunVector(Y[dayOfYear(mo, d)].decl, wallClockHourAngle(dayOfYear(mo, d), h * 60, s.lon, s.tz, s.dst), s.lat), Lx, dial.frame);
+  // a winter day: the tip's shadow (k x L) is on a blue (tip) curve; a summer day: the notch's shadow (L) on a red one
+  assert.ok(onto(ptsOf(/^ana[RF]t$/), at(0, 15, 12, k * dial.L)) < 0.6, 'January noon: on a tip curve, at k x L');
+  assert.ok(onto(ptsOf(/^ana[RF]s$/), at(6, 15, 13, dial.L)) < 0.6, 'July 13:00: on a notch curve, at L');
+  assert.ok(onto(ptsOf(/^ana[RF]t$/), at(0, 15, 12, dial.L)) > 3, 'not where the notch would put it');
+  // the winter month lines and their ticks, and the winter solstice, at the tip
+  const jan = Y[dayOfYear(0, 1)], P = shadowPoint(sunVector(jan.decl, wallClockHourAngle(jan.i, 12 * 60, s.lon, s.tz, s.dst), s.lat), k * dial.L, dial.frame);
+  assert.ok(dial.layers.find((l) => l.id === 'clockTicksTip').lines.some((l) => Math.hypot(l[0][0] - P[0], l[0][1] - P[1]) < 0.05), 'a January tick at the tip');
+  assert.ok(dial.layers.some((l) => l.id === 'dateMonthsTip' && l.labels.some((lb) => lb.text === '1 Jan')), 'the January line at the tip');
+  assert.ok(dial.layers.some((l) => l.id === 'dateMainTip' && l.labels.some((lb) => lb.text === t('winterSolstice'))), 'the winter solstice at the tip');
+  assert.ok(dial.layers.some((l) => l.id === 'dateMain' && l.labels.some((lb) => lb.text === t('summerSolstice'))), 'the summer solstice at the notch');
+  // numbers of tip pieces are in the tip's colour; black and white tells the families apart
+  assert.ok(dial.layers.flatMap((l) => l.labels).some((lb) => lb.cls === 'anaTip' && /^\d+$/.test(lb.text)), 'blue hour numbers');
+  const css = faceSheet(dial, { s: { ...s, ink: 'bw' }, t }).css, dash = (c) => (css.match(new RegExp(`\\.l-${c}\\{[^}]*stroke-dasharray:([^;}]+)`)) || [])[1] || 'solid';
+  assert.equal(new Set(['anaR', 'anaF', 'anaRs', 'anaFs', 'anaRt', 'anaFt'].map(dash)).size, 6, 'six distinct black-and-white patterns');
+  // the simulation rings the tip's shadow, the template says which point reads which season, and the gnomon fit leaves rodX alone
+  const S = shadowPoint(sunVector(10, 20, s.lat), dial.L, dial.frame);
+  assert.ok(/stroke="#1f5fa8"/.test(shadowMarkup(dial, { s }, S)), 'tip shadow ringed');
+  assert.ok(svgDoc(gnomonSheet(dial, { s, t })).includes(esc(t('rodTipNote', k)).split(' ').slice(0, 5).join(' ')), 'template note');
+  assert.equal(fitGnomonScale({ ...s, paper: 'A4' }, t, 'A4', {}), null, 'rodX is part of the dial now: not fitted');
+  // without summer time every day is winter time: everything at the tip
+  const none = buildDial(sanitize({ ...base, rodTip: true, rodX: 2, dst: 'none' }).s, t);
+  assert.ok(!none.layers.some((l) => /^ana[RF]s?$/.test(l.id) && l.lines.length) && none.layers.some((l) => /^ana[RF]t$/.test(l.id)), 'all at the tip without summer time');
+});
+
+test('test sheet: summer time of the actual date, the horizon profile; two-point rod: fit guard, off-plate warning, check step', () => {
+  const t = makeT('en'), { s } = sanitize({ ...DEFAULTS }), dial = buildDial(s, t);
+  // 27 Oct: summer time in the reference year (until 31 Oct 2027), not in 2026 (ended 25 Oct): the caller says which
+  const i = dayOfYear(9, 27), d = yearTable()[i];
+  const std = testShadow(dial, s, i, 12 * 60, 0, dial.L, false), sum = testShadow(dial, s, i, 12 * 60, 0, dial.L, true);
+  const ref = shadowPoint(sunVector(d.decl, hourAngleAtClock(12 * 60, s.lon, s.tz, d.eot), s.lat), dial.L, dial.frame);
+  near(std[0], ref[0], 1e-9); near(std[1], ref[1], 1e-9);
+  assert.ok(Math.hypot(sum[0] - std[0], sum[1] - std[1]) > 5, 'an hour apart');
+  assert.deepEqual(testShadow(dial, s, i, 720), sum, 'default: the reference year');
+  const sheet = (summer) => svgDoc(testSheet(dial, { s, t, day: i, summer, testL: 40 }));
+  assert.notEqual(sheet(false), sheet(true));
+  // a horizon that hides the sun all day leaves no good times: the dial's own rod and the no-sun note
+  const hid = sanitize({ ...DEFAULTS, horizon: '0:89' }).s;
+  assert.equal(testRodLength(buildDial(hid, t), hid, i, TEST_BOX.w, TEST_BOX.h), Math.round(buildDial(hid, t).L));
+  // the gnomon fit never switches the two-point rod on (rodX 1 with rodTip ticked)
+  const r1 = sanitize({ ...DEFAULTS, anaClock: true, rodTip: true, rodX: 1, fitGnomonX: true, paper: 'A4' }).s;
+  assert.equal(fitGnomonScale(r1, t, 'A4', {}), null);
+  // the auto-fit sizes the dial for the notch: say how much of the tip's winter reading is off the plate
+  const w = buildDial(sanitize({ ...DEFAULTS, anaClock: true, rodTip: true, rodX: 3 }).s, t).warnings.find((x) => x[0] === 'tipClipped');
+  assert.ok(w && w[1] === 3 && w[2] > 5 && w[2] < 100, JSON.stringify(w));
+  assert.ok(!buildDial(sanitize({ ...DEFAULTS, anaClock: true }).s, t).warnings.some((x) => x[0] === 'tipClipped'));
+  // the check step on the info sheet says which point reads which season
+  const tp = sanitize({ ...DEFAULTS, anaClock: true, rodTip: true, rodX: 2 }).s;
+  assert.ok(svgDoc(infoSheet(buildDial(tp, t), { s: tp, t })).includes('NOTCH'));
 });

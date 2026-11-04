@@ -114,6 +114,10 @@ longitude + EoT so it reads clock time (analemma per hour line).
   month names go on every wall-clock 8 (all on the 12 o'clock one, Feb/May/Aug/Nov on the others). They replace the
   straight hour lines and the other analemmas. A figure-8's hour number goes at the
   summer end of its part on the plate (none on the plate, no number).
+- Two-point rod (`rodTip`, `tipOn` in `dial.js`: wall-clock 8s and rodX > 1): every curve read on a winter-time day (8
+  pieces, month-start lines and their ticks, the winter solstice, the March equinox) is drawn at rodX x L in the tip classes
+  (`anaRt`/`anaFt`, `dateTip`, `clockTickTip`, text `anaTip`); summer-time ones stay at L. rodX then changes the dial, so
+  `fitGnomonScale` returns null.
 - 10-minute ticks (`dTicks10`, with the wall-clock 8s): on each month-start date line, ticks every 10 wall-clock minutes,
   January to June on the upper side of the line and July to December on the lower side (their lines nearly coincide but
   their times do not). The month lines are drawn with them.
@@ -144,6 +148,12 @@ lit) every 2 days and 10 minutes of standard time (hour angle from the clock: so
 marker and a hover readout. The horizon profile (`horizon`, text) is parsed by `parseHorizon` into numbers only and
 stored in canonical form; `horizonAlt` interpolates it around the circle. `sunStats` (and so the warnings) and the
 simulated shadow respect it; the dial's lines and the auto-fit do not (an obstacle can move).
+
+### Shadow test sheet
+`testSheet` (`svg.js`): for one day (the Time controls' date), the rod tip's shadow (`testShadow`, built on `wallClockHourAngle`
+and `shadowPoint`) on a millimetre grid, with ladders for the wall turned by `TEST_OFFSETS`. Its rod length (`testRodLength`)
+is the longest whole 5 mm whose shadows fit the box (`TEST_BOX`) over the hours the sun is well onto the wall (45° off its
+plane for two hours, relaxed to 30°, 15°, 8°); with no such hours the sheet says the sun only grazes the wall that day.
 
 ### SVG export (print plans)
 Laser files (`material: 'laser'`): `laserLayers` (`svg.js`) sorts a sheet's flat markup into Inkscape layers by class
