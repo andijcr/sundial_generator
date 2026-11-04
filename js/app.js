@@ -1,6 +1,6 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
-import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR, sunVector, altAz, RAD } from './astro.js';
+import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
 import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, serializeState, dstLabelsApply } from './state.js';
@@ -155,18 +155,18 @@ function renderSun() {
   $('#sunGraph').innerHTML = `<svg viewBox="0 0 262 120" role="img" aria-label="${esc(t('sunTitle'))}"><style>${sunChartCss()}</style>${chart.markup}<g id="sc-now"></g></svg>`;
   $('#sunGraph').append(tip);
   const day = (c) => { const d = yearTable()[c.i]; return `${d.dom} ${t('monthsShort')[d.m]}`; };
-  const open = dial.horizon.length ? t('sunSummaryHz', sunlightGrid(state.lat, state.lon, state.tz, D, [], state.grazing).avg.toFixed(1)) : '';
+  const open = dial.horizon.length ? t('sunSummaryHz', grid.avgOpen.toFixed(1)) : '';
   $('#sunNow').textContent = t('sunSummary', grid.avg.toFixed(1), open, grid.max.litH.toFixed(1), day(grid.max), grid.min.litH.toFixed(1), day(grid.min));
 }
-function updateSunMarker(c) {
+function updateSunMarker() {
   if (!sunView) return;
-  const days = Math.min(364.99, Math.round((Date.UTC(REF_YEAR, c.mo, c.d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000) + 0.5);
-  const min = c.h * 60 + c.mi - (c.dst ? 60 : 0); // the chart is in standard time
+  const c = civilFromUtc(time.ms, state.tz, 'none'); // the chart is in standard time: date and time without summer time (00:30 summer time is 23:30 the day before)
+  const days = Math.min(364.99, dayOfYear(c.mo, c.d) + 0.5), min = c.h * 60 + c.mi;
   const key = `${days}|${min}`;
   if (key === sunKey) return;
   sunKey = key;
   const g = $('#sc-now');
-  if (g) g.innerHTML = sunChartMarker(sunView.chart, days, (min + 1440) % 1440);
+  if (g) g.innerHTML = sunChartMarker(sunView.chart, days, min);
 }
 // hover: what the cell under the pointer means, and the sun's position then
 function bindSunHover() {
@@ -180,7 +180,7 @@ function bindSunHover() {
     const col = grid.cols[Math.min(grid.cols.length - 1, Math.floor(((p.x - px) / pw) * 365 / grid.stepDays))];
     const min = sunView.chart.t0 + ((p.y - py) / ph) * (sunView.chart.t1 - sunView.chart.t0), k = Math.min(grid.n - 1, Math.floor(min / grid.stepMin));
     const d = yearTable()[col.i], code = col.codes[k];
-    const s = sunVector(d.decl, ((k + 0.5) * grid.stepMin - lonCorrection(state.lon, state.tz) + d.eot - 720) / 4, state.lat);
+    const s = sunVector(d.decl, hourAngleAtClock((k + 0.5) * grid.stepMin, state.lon, state.tz, d.eot), state.lat);
     const name = { [SUN.night]: t('sunNight'), [SUN.behind]: t('sunBehind'), [SUN.hidden]: t('sunHidden'), [SUN.graze]: t('sunGraze', state.grazing), [SUN.lit]: t('sunLit') }[code];
     const extra = code === SUN.night ? '' : ` · ${t('sunTipSun', altAz(s).alt.toFixed(0), (Math.asin(Math.max(-1, Math.min(1, dot(s, dial.frame.n)))) * RAD).toFixed(0))}`;
     tip.textContent = t('sunTip', `${d.dom} ${t('monthsShort')[d.m]}`, fmtHM(k * grid.stepMin), name) + extra;
@@ -207,7 +207,7 @@ function updateCorrectionMarker(sun, c) {
   if (key === markerKey) return;
   markerKey = key;
   // days since the start of the year; the curve's point for a day is its noon, so local noon on day i is i + 0.5
-  const days = Math.min(364.99, Math.round((Date.UTC(REF_YEAR, c.mo, c.d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000) + (c.h * 60 + c.mi) / 1440);
+  const days = Math.min(364.99, dayOfYear(c.mo, c.d) + (c.h * 60 + c.mi) / 1440);
   const { solar, zone } = correctionAt(state.lon, state.tz, sun.eot);
   $('#cg-today').innerHTML = correctionMarker(corr, days, solar, zone);
   $('#corrNow').textContent = t('cgToday', `${c.d} ${t('monthsShort')[c.mo]}`, fmtMin(solar), fmtMin(zone), c.dst ? t('cgTodayDst') : '');
@@ -265,7 +265,7 @@ function renderTime() {
   }
   // readout
   updateCorrectionMarker(sun, c);
-  updateSunMarker(c);
+  updateSunMarker();
   const lit = sun.alt > 0 && S;
   const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : hidden ? t('rHidden') : t('rBehind');
   const zoneRead = sun.solarMin + lonCorrection(state.lon, state.tz);

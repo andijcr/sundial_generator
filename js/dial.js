@@ -5,7 +5,7 @@
 // foot F (the point of the wall right behind the nodus), x to the right as you
 // face the wall, y up. The nodus N sits at distance L in front of F.
 
-import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, lonCorrection } from './astro.js';
+import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, hourAngleAtClock } from './astro.js';
 
 export const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -261,16 +261,14 @@ export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0, 
 export const HORIZON_MAX = 36;
 
 /**
- * Horizon profile from text: "az:alt" pairs separated by commas or semicolons, compass azimuth (0 = north, 90 = east)
- * and the altitude of the obstacles' top, degrees. Tokens that are not such a pair are ignored, azimuths are wrapped
+ * Horizon profile from text: "az:alt" pairs (separated by commas, semicolons or spaces), compass azimuth (0 = north, 90 = east)
+ * and the altitude of the obstacles' top, degrees. Anything that is not such a pair is ignored, azimuths are wrapped
  * to 0..360, altitudes held to 0..89, the points sorted by azimuth (a repeated azimuth keeps its last value).
  * Returns [[az, alt], ...]: what is stored and drawn never contains anything but numbers.
  */
 export function parseHorizon(str) {
   const byAz = new Map();
-  for (const tok of String(str ?? '').split(/[,;]+/)) {
-    const m = tok.trim().match(/^(-?\d+(?:\.\d+)?)\s*[:=/]\s*(-?\d+(?:\.\d+)?)$/);
-    if (!m) continue;
+  for (const m of String(str ?? '').matchAll(/(-?\d+(?:\.\d+)?)\s*[:=/]\s*(-?\d+(?:\.\d+)?)/g)) { // any separator between the pairs
     const az = Math.round(norm360(+m[1]) * 10) / 10 % 360, alt = Math.round(Math.min(89, Math.max(0, +m[2])) * 10) / 10;
     byAz.delete(az);
     byAz.set(az, alt);
@@ -304,24 +302,25 @@ export function sunState(s, fr, hz = [], grazing = 0) {
 /**
  * When the sun reaches the wall through the (reference) year, against standard (zone) clock time: one column every
  * `stepDays` days, one cell every `stepMin` minutes, each a SUN state. Hour angle from the clock:
- * solar time = zone time − lonCorrection + EoT. litH: hours of sun on the wall that day (grazing included).
+ * hourAngleAtClock (astro.js). litH: hours of sun on the wall that day (grazing included); avgOpen: the average with an open horizon.
  */
 export function sunlightGrid(lat, lon, tz, D, hz = [], grazing = 0, stepDays = 2, stepMin = 10) {
-  const fr = wallFrame(D), Y = yearTable(), lc = lonCorrection(lon, tz), n = Math.round(1440 / stepMin);
+  const fr = wallFrame(D), Y = yearTable(), n = Math.round(1440 / stepMin);
   const cols = [];
+  let open = 0; // cells that would be lit with an open horizon (lit, grazing or hidden)
   for (let i = 0; i < Y.length; i += stepDays) {
     const d = Y[i], codes = new Uint8Array(n);
     let lit = 0;
     for (let k = 0; k < n; k++) {
-      const T = (k + 0.5) * stepMin, H = (T - lc + d.eot - 720) / 4;
-      codes[k] = sunState(sunVector(d.decl, H, lat), fr, hz, grazing);
+      codes[k] = sunState(sunVector(d.decl, hourAngleAtClock((k + 0.5) * stepMin, lon, tz, d.eot), lat), fr, hz, grazing);
       if (codes[k] >= SUN.graze) lit++;
+      if (codes[k] >= SUN.hidden) open++;
     }
     cols.push({ i, codes, litH: lit * stepMin / 60 });
   }
-  const avg = cols.reduce((a, c) => a + c.litH, 0) / cols.length;
+  const avg = cols.reduce((a, c) => a + c.litH, 0) / cols.length, avgOpen = open * stepMin / 60 / cols.length;
   const max = cols.reduce((a, c) => (c.litH > a.litH ? c : a)), min = cols.reduce((a, c) => (c.litH < a.litH ? c : a));
-  return { stepDays, stepMin, n, cols, avg, max, min };
+  return { stepDays, stepMin, n, cols, avg, avgOpen, max, min };
 }
 
 /** Hours of sun on the wall (above the horizon profile hz, if any), averaged per day over the year, and daylight hours. */
@@ -342,9 +341,10 @@ export function sunStats(lat, D, hz = []) {
 
 /** Box of a label (dial coords, mm): [x0, x1, y0, y1]. Text is centred on (x, y); the width is estimated (0.6 em per character). */
 export function labelBox(lb, fs, x = lb.x, y = lb.y) {
-  const z = fs * (lb.size || 1), w = [...lb.text].length * 0.6 * z + 0.15 * z, h = 0.85 * z;
+  const [w, h] = labelSize(lb, fs);
   return [x - w / 2, x + w / 2, y - h / 2, y + h / 2];
 }
+const labelSize = (lb, fs) => { const z = fs * (lb.size || 1); return [[...lb.text].length * 0.6 * z + 0.15 * z, 0.85 * z]; };
 const boxesHit = (a, b) => a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3];
 
 // Which labels keep their place when two collide: the hour numbers first, then the summer-time numbers
@@ -361,11 +361,14 @@ export function placeLabels(labels, clip, fs) {
   const order = labels.map((lb, i) => [labelRank(lb), i]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, i]) => labels[i]);
   const placed = [], moved = new Map();
   for (const lb of order) {
+    const z = fs * (lb.size || 1), [w, h] = labelSize(lb, fs); // the size once per label: the search below tries up to 128 spots
+    const box = (x, y) => [x - w / 2, x + w / 2, y - h / 2, y + h / 2];
+    const free = (x, y) => { const b = box(x, y); return !placed.some((p) => boxesHit(b, p)); };
+    const inside = (x, y) => x - w / 2 >= clip.x0 && x + w / 2 <= clip.x1 && y - h / 2 >= clip.y0 && y + h / 2 <= clip.y1;
+    // a summer-time number follows its hour number, unless that would take it off the plate
     const d = lb.of && moved.get(lb.of);
-    const x0 = lb.x + (d ? d[0] : 0), y0 = lb.y + (d ? d[1] : 0);
-    const z = fs * (lb.size || 1);
-    const free = (x, y) => { const b = labelBox(lb, fs, x, y); return !placed.some((p) => boxesHit(b, p)); };
-    const inside = (x, y) => { const b = labelBox(lb, fs, x, y); return b[0] >= clip.x0 && b[1] <= clip.x1 && b[2] >= clip.y0 && b[3] <= clip.y1; };
+    const follow = d && inside(lb.x + d[0], lb.y + d[1]);
+    const x0 = lb.x + (follow ? d[0] : 0), y0 = lb.y + (follow ? d[1] : 0);
     let best = [x0, y0];
     if (!free(x0, y0)) {
       search: for (let k = 1; k <= 8; k++) {
@@ -379,7 +382,7 @@ export function placeLabels(labels, clip, fs) {
     moved.set(lb, [best[0] - lb.x, best[1] - lb.y]);
     lb.x = best[0]; lb.y = best[1];
     delete lb.of;
-    placed.push(labelBox(lb, fs));
+    placed.push(box(lb.x, lb.y));
   }
 }
 

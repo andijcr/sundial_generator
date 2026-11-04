@@ -3,7 +3,7 @@
 //
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
-import { dayMs, REF_YEAR, fmtHM, lonCorrection, yearCorrections } from './astro.js';
+import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections } from './astro.js';
 import { absoluteDeclination } from './dial.js';
 import { makeT } from './i18n.js';
 
@@ -83,7 +83,20 @@ function sheetCss(bw, laser = false) {
 .reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:${bw ? '#000' : '#999'};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${bw ? '#000' : '#c0392b'}}`;
 }
 
-const defs = (bw, laser = false) => `<defs><marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${laser ? LASER.notes : bw ? '#000' : '#444'}"/></marker></defs>`;
+// The dimension arrowhead. A laser sheet has its own (#arrL, in the notes colour), so the sheets of one print job, which share
+// one document, each keep their colour.
+const arrow = (id, fill) => `<marker id="${id}" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${fill}"/></marker>`;
+const defs = (bw, laser = false) => `<defs>${laser ? arrow('arrL', LASER.notes) : arrow('arr', bw ? '#000' : '#444')}</defs>`;
+const laserArrows = (markup) => markup.replaceAll('url(#arr)', 'url(#arrL)');
+
+/** Scope a sheet's CSS (plain rules, no at-rules) to the given selectors: the sheets of a print job share one document. */
+export function scopeCss(css, scopes) {
+  return css.split('}').map((r) => r.trim()).filter(Boolean).map((r) => {
+    const i = r.indexOf('{');
+    const sel = r.slice(0, i).split(',').map((x) => x.trim()).filter(Boolean);
+    return `${sel.flatMap((x) => scopes.map((sc) => `${sc} ${x}`)).join(',')}{${r.slice(i + 1)}}`;
+  }).join('');
+}
 
 // ---------------- Laser layers ----------------
 
@@ -234,8 +247,9 @@ function dimH(x1, x2, y, yRef, text) {
       ? `<text class="dt" x="${f((x1 + x2) / 2)}" y="${f(y - 1.2)}">${esc(text)}</text>`
       : `<text class="dt" x="${f(Math.max(x1, x2) + 2)}" y="${f(y + 1.2)}" style="text-anchor:start">${esc(text)}</text>`);
 }
-function dimV(y1, y2, x, xRef, text) {
+function dimV(y1, y2, x, xRef, text) { // text null: the line only (the value goes in a caption)
   const cx = x, cy = (y1 + y2) / 2;
+  if (text == null) return `<path class="dimx" d="M${f(xRef)} ${f(y1)}H${f(x + Math.sign(x - xRef) * 2)}M${f(xRef)} ${f(y2)}H${f(x + Math.sign(x - xRef) * 2)}"/><path class="dim" d="M${f(x)} ${f(y1)}V${f(y2)}" marker-start="url(#arr)" marker-end="url(#arr)"/>`;
   return `<path class="dimx" d="M${f(xRef)} ${f(y1)}H${f(x + Math.sign(x - xRef) * 2)}M${f(xRef)} ${f(y2)}H${f(x + Math.sign(x - xRef) * 2)}"/>` +
     `<path class="dim" d="M${f(x)} ${f(y1)}V${f(y2)}" marker-start="url(#arr)" marker-end="url(#arr)"/>` +
     (Math.abs(y2 - y1) > 28
@@ -340,7 +354,7 @@ export function faceSheet(dial, ctx) {
   }
   const laser = s.material === 'laser';
   // a laser file has one layer per job (cut, score, engrave, notes); everything else is one drawing
-  const done = (notes) => ({ W, H, inner: laser ? laserLayers([[g, `translate(${ML},${MT})`], [notes]]) : `<g transform="translate(${ML},${MT})">${g}</g>${notes}`, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw', laser });
+  const done = (notes) => ({ W, H, inner: laser ? laserArrows(laserLayers([[g, `translate(${ML},${MT})`], [notes]])) : `<g transform="translate(${ML},${MT})">${g}</g>${notes}`, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw', laser });
   // title block
   const ty = MT + P.h + 36;
   if (s.faceBrief) {
@@ -430,7 +444,8 @@ export function gnomonSheet(dial, ctx) {
     // flat fin in the vertical plane: wall edge on the left (F at its foot), bottom edge out to the nodus N,
     // sloping edge back up to the wall at height h. A fold tab runs along the wall edge.
     const h = dial.bladeH, tb = Math.min(TAB, L / 4, h / 3); // a low blade gets a narrower tab (its slanted ends must not cross)
-    const bx = x + TAB + 10 + (h > 28 ? 0 : 22), ay = top + 10, fy = ay + h; // a short height dimension puts its label to the left of its line: make room
+    const bx = x + TAB + 10, ay = top + 10, fy = ay + h;
+    const hShort = h <= 28; // a short height dimension would put its label to the left of the line, off the sheet: it goes in the caption
     const tip = Math.atan2(h, L) * 180 / Math.PI, th = tip * Math.PI / 180;
     let g = laser ? `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx - tb)},${f(ay + tb)} ${f(bx - tb)},${f(fy - tb)} ${f(bx)},${f(fy)} ${f(bx + L)},${f(fy)}"/>`
       : `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx + L)},${f(fy)}"/>` +
@@ -445,7 +460,7 @@ export function gnomonSheet(dial, ctx) {
       g += `<text class="dt" x="${f(bx + L - r - 3)}" y="${f(fy - 2)}" style="text-anchor:end">${tip.toFixed(1)}°</text>`;
     }
     g += dimH(bx, bx + L, fy + 9, fy, `L = ${mm(L)}`);
-    g += dimV(ay, fy, bx - tb - 10, bx - tb - 1, `h = ${mm(h)}`);
+    g += dimV(ay, fy, bx - tb - 10, bx - tb - 1, hShort ? null : `h = ${mm(h)}`);
     g += `<circle cx="${f(bx + L)}" cy="${f(fy)}" r="1" class="nodus"/>`;
     g += `<text class="dt" x="${f(bx + L + 3)}" y="${f(fy + 1)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
     if (roomy) {
@@ -458,6 +473,7 @@ export function gnomonSheet(dial, ctx) {
     if (tabFits) g += `<text class="dt" x="${f(bx - tb / 2)}" y="${f((ay + fy) / 2)}" transform="rotate(-90 ${f(bx - tb / 2)} ${f((ay + fy) / 2)})">${esc(t('tab'))}</text>`;
     inner += g;
     const caption = [t('bladeWallEdge')];
+    if (hShort) caption.push(`h = ${mm(h)}`);
     if (!roomy) caption.push(`${t('bladeTop')}: ↑ · ${tip.toFixed(1)}° · ${t('bladeBrace')} ${mm(Math.hypot(L, h))}`);
     if (!tabFits) caption.push(t('bladeTabAt'));
     const bladeLines = [...caption, ...wrapText(`${t('blade')}: ${t('bladeNote')}`, 52)];
@@ -504,7 +520,7 @@ export function gnomonSheet(dial, ctx) {
   // the summary sits just below the drawing, so the sheet is no taller than it needs to be (it should fit an A4 page)
   inner += textLines(M, H + 6, summaryLines(dial, ctx).slice(0, 3), 3.2);
   H = Math.ceil(H + 6 + 2 * 3.2 * 1.45 + 5);
-  if (laser) inner = laserLayers([[inner]]);
+  if (laser) inner = laserArrows(laserLayers([[inner]]));
   return { W, H, inner, css: '', name: 'gnomon', bw: s.ink === 'bw', laser };
 }
 
@@ -547,7 +563,7 @@ export function infoSheet(dial, ctx) {
   const corr = yearCorrections(s.lon, s.tz, s.dst); // the same data as the correction chart
   for (let mo = 0; mo < 12; mo++) {
     for (const day of [1, 15]) {
-      const i = Math.round((Date.UTC(REF_YEAR, mo, day) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+      const i = dayOfYear(mo, day);
       const d = corr[i];
       const row = [`${day} ${months[mo]}`, fmtMin(d.eot), fmtMin(d.solar), fmtMin(d.zone), d.dst ? '+60 m' : ''];
       inner += row.map((v, k) => `<text class="st" x="${cols[k]}" y="${f(y)}" font-size="3.2">${esc(v)}</text>`).join('');
@@ -611,7 +627,7 @@ export function correctionGraph(data, { x = 0, y = 0, w = 250, h = 100, t }) {
     g += `<path class="${v === 0 ? 'cg-axis' : 'cg-grid'}" d="M${f(px)} ${f(Y(v))}H${f(px + pw)}"/>`;
     g += `<text class="cg-t" x="${f(px - 1.5)}" y="${f(Y(v) + 1.1)}" style="text-anchor:end">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}</text>`;
   }
-  const first = (m) => Math.round((Date.UTC(REF_YEAR, m, 1) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+  const first = (m) => dayOfYear(m, 1);
   for (let m = 0; m < 12; m++) {
     const a = first(m), b = m < 11 ? first(m + 1) : n;
     if (m > 0) g += `<path class="cg-grid" d="M${f(px + (a / n) * pw)} ${f(py)}V${f(py + ph)}"/>`;
@@ -730,7 +746,7 @@ export function sunChart(grid, { x = 0, y = 0, w = 262, h = 120, t, dst = [], gr
     if ((m / 60) % 2) continue;
     g += `<path class="sc-grid" d="M${f(px)} ${f(Y(m))}H${f(px + pw)}"/><text class="sc-t" x="${f(px - 1.5)}" y="${f(Y(m) + 1.1)}" style="text-anchor:end">${fmtHM(m)}</text>`;
   }
-  const first = (mo) => Math.round((Date.UTC(REF_YEAR, mo, 1) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+  const first = (mo) => dayOfYear(mo, 1);
   for (let mo = 0; mo < 12; mo++) {
     const a = first(mo), b = mo < 11 ? first(mo + 1) : 365;
     if (mo) g += `<path class="sc-grid" d="M${f(Xt(a))} ${f(py)}V${f(py + ph)}"/>`;
@@ -747,10 +763,15 @@ export function sunChart(grid, { x = 0, y = 0, w = 262, h = 120, t, dst = [], gr
   return { markup: `<g>${g}</g>`, X: Xt, Y, box: { px, py, pw, ph }, t0, t1 };
 }
 
-/** The simulated moment on the sun chart: days since the start of the year, standard-time minutes after midnight. */
+/**
+ * The simulated moment on the sun chart: days since the start of the year, standard-time minutes after midnight. A time
+ * outside the plotted hours (night) gets only the date line, not a point on the chart's edge.
+ */
 export function sunChartMarker(chart, days, min) {
-  const { px, py, pw, ph } = chart.box, cx = chart.X(Math.min(365, Math.max(0, days))), m = Math.min(chart.t1, Math.max(chart.t0, min)), cy = chart.Y(m);
-  return `<path class="sc-now" d="M${f(cx)} ${f(py)}V${f(py + ph)}M${f(px)} ${f(cy)}H${f(px + pw)}"/><circle class="sc-now" cx="${f(cx)}" cy="${f(cy)}" r="1.4"/>`;
+  const { px, py, pw, ph } = chart.box, cx = chart.X(Math.min(365, Math.max(0, days)));
+  let out = `<path class="sc-now" d="M${f(cx)} ${f(py)}V${f(py + ph)}"/>`;
+  if (min >= chart.t0 && min <= chart.t1) { const cy = chart.Y(min); out += `<path class="sc-now" d="M${f(px)} ${f(cy)}H${f(px + pw)}"/><circle class="sc-now" cx="${f(cx)}" cy="${f(cy)}" r="1.4"/>`; }
+  return out;
 }
 
 // ---------------- Tiling ----------------
@@ -846,7 +867,7 @@ function planTiles(sheet, paper, overlap, label, opts) {
     const head = `<svg xmlns="http://www.w3.org/2000/svg" ${INKSCAPE_NS} width="${pw}mm" height="${ph}mm" viewBox="${f(vx)} ${f(vy)} ${pw} ${ph}">`;
     const svg = shared ? `${head}${body}</svg>`
       : `<?xml version="1.0" encoding="UTF-8"?>\n${head}\n${defs(sheet.bw, sheet.laser)}<style>${sheet.css}${sheetCss(sheet.bw, sheet.laser)}</style>${body}</svg>`;
-    return { name: tileName(sheet.name, i, j), svg, pw, ph, page: n, pages, orient };
+    return { name: tileName(sheet.name, i, j), svg, pw, ph, page: n, pages, orient, sheet: sheet.name };
   };
   return { lay, sheet, content, page };
 }
@@ -885,10 +906,12 @@ export function printJobHtml(sheets, paper, overlap, opts, title) {
   const css = `@page{size:${pages[0].pw}mm ${pages[0].ph}mm;margin:0}` +
     sizes.map((z) => { const [pw, ph] = z.split('x'); return `@page p${z}{size:${pw}mm ${ph}mm;margin:0}`; }).join('') +
     'html,body{margin:0}.pg{break-after:page;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pg svg{display:block}';
-  const holder = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${defs(plans[0].sheet.bw, plans[0].sheet.laser)}` +
-    plans.map((p) => `<style>${p.sheet.css}${sheetCss(p.sheet.bw, p.sheet.laser)}</style><defs>${p.content}</defs>`).join('') + '</svg>';
+  // each sheet's styles only reach its own content and pages (a laser gnomon and a paper info sheet style .cut differently)
+  const markers = [...new Set(plans.map((p) => defs(p.sheet.bw, p.sheet.laser)))].join('');
+  const holder = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${markers}` +
+    plans.map((p) => `<style>${scopeCss(p.sheet.css + sheetCss(p.sheet.bw, p.sheet.laser), [`#content-${p.sheet.name}`, `.pg-${p.sheet.name}`])}</style><defs>${p.content}</defs>`).join('') + '</svg>';
   return `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>${css}</style>${holder}` +
-    pages.map((p) => `<div class="pg" style="page:p${p.pw}x${p.ph};width:${p.pw}mm;height:${p.ph}mm">${p.svg}</div>`).join('') +
+    pages.map((p) => `<div class="pg pg-${p.sheet}" style="page:p${p.pw}x${p.ph};width:${p.pw}mm;height:${p.ph}mm">${p.svg}</div>`).join('') +
     '<script>onload=()=>print()</script>';
 }
 

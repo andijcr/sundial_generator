@@ -5,7 +5,7 @@ import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, 
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
-import { sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
+import { scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -291,7 +291,7 @@ test('blade template: tab label only where it fits, otherwise it moves to the ca
   assert.ok(!tight.svg.includes(`>${tight.t('tab')}</text>`) && tight.svg.includes(tight.t('bladeTabAt')), 'L=50 IT: caption instead');
   const tiny = sheet('en', 20);
   assert.ok(tiny.svg.includes(tiny.t('bladeTabAt')));
-  assert.match(tiny.svg, /<text class="dt"[^>]*style="text-anchor:end">h = 20\.0 mm<\/text>/, 'short h dimension: label on the outer (left) side');
+  assert.ok(!/<text class="dt"[^>]*>h = 20\.0 mm<\/text>/.test(tiny.svg) && /<text class="st"[^>]*>h = 20\.0 mm<\/text>/.test(tiny.svg), 'short h dimension: the value goes in the caption, not off the sheet to the left');
 });
 
 test('blade stays clear of the "no triangular style" text', () => {
@@ -661,7 +661,7 @@ test('print job: one document, shared content, pages sized to their sheets; tile
   const n = printJobPages(sheets, 'A4', 10, { orient: 'auto', margin: 8 });
   assert.ok(n > 2 && n <= MAX_QUIET_PAGES);
   const html = printJobHtml(sheets, 'A4', 10, { orient: 'auto', margin: 8 }, 'T <x>');
-  assert.equal((html.match(/class="pg"/g) || []).length, n);
+  assert.equal((html.match(/class="pg pg-/g) || []).length, n);
   assert.ok(html.includes('&lt;x&gt;') && !html.includes('<x>'));
   assert.ok(html.includes('<use'), 'pages refer to shared content');
   assert.ok(!/NaN|undefined/.test(html));
@@ -979,9 +979,10 @@ test('sun chart: no broken numbers, legend inside the chart, hatched hidden cell
         assert.ok(+m[1] + m[3].length * 1.6 <= 262 + 1, `legend "${m[3]}" leaves the chart (${lang})`);
       }
       assert.ok(c.t0 % 60 === 0 && c.t1 % 60 === 0 && c.t1 > c.t0);
-      const mk = sunChartMarker(c, 400, 2000).match(/cx="([\d.]+)" cy="([\d.]+)"/);
       const { px, py, pw, ph } = c.box;
-      assert.ok(+mk[1] <= px + pw + 1e-6 && +mk[2] <= py + ph + 1e-6 && +mk[2] >= py - 1e-6, 'marker clamped into the plot');
+      assert.ok(!/<circle/.test(sunChartMarker(c, 100, c.t1 + 30)) && !/<circle/.test(sunChartMarker(c, 100, c.t0 - 30)), 'a time outside the plotted hours gets no point on the edge');
+      const mk = sunChartMarker(c, 400, (c.t0 + c.t1) / 2).match(/cx="([\d.]+)" cy="([\d.]+)"/);
+      assert.ok(+mk[1] <= px + pw + 1e-6 && +mk[2] <= py + ph + 1e-6 && +mk[2] >= py - 1e-6, 'marker inside the plot, date clamped');
     }
   }
 });
@@ -1001,4 +1002,19 @@ test('measuring the wall: shadow reading, circular mean and spread, compass even
   assert.equal(compassHeading({ absolute: false, alpha: 90 }), null, 'a relative alpha is no heading');
   assert.equal(compassHeading(null), null);
   assert.ok(BETA_POOR > 45 && BETA_POOR < 90);
+});
+
+test('print job of laser sheets: each sheet keeps its own colours and arrowheads; CSS scoped per sheet', () => {
+  assert.equal(scopeCss('.a,.b{fill:red}\n.c{x:1}', ['#s', '.p']), '#s .a,.p .a,#s .b,.p .b{fill:red}#s .c,.p .c{x:1}');
+  const { s } = sanitize({ ...DEFAULTS, material: 'laser' });
+  const t = makeT('en'), ctx = { s, t, place: 'T', dateStr: 'x' }, dial = buildDial(s, t);
+  const html = printJobHtml([[faceSheet(dial, ctx), 'f'], [gnomonSheet(dial, ctx), 'g'], [infoSheet(dial, ctx), 'i'], [correctionSheet(dial, ctx), 'c']], 'A4', 10, { orient: 'auto', margin: 8 }, 'T');
+  // the gnomon's laser cut rule and the info sheet's paper cut rule each reach only their own sheet
+  assert.match(html, new RegExp(`#content-gnomon \\.cut,\\.pg-gnomon \\.cut\\{fill:none;stroke:${LASER.cut}`));
+  assert.ok(!/(^|[}>])\.cut\{/.test(html), 'no unscoped rule left to leak between sheets');
+  assert.ok(html.includes('id="arr"') && html.includes('id="arrL"'), 'both arrowheads defined once each');
+  assert.equal((html.match(/id="arrL"/g) || []).length, 1);
+  const gn = html.match(/<g id="content-gnomon">[\s\S]*?<\/g><\/defs>/)[0], info = html.match(/<g id="content-info">[\s\S]*?<\/defs>/)[0];
+  assert.ok(gn.includes('url(#arrL)') && !gn.includes('url(#arr)'), 'laser sheets use the laser arrowhead');
+  assert.ok(!info.includes('url(#arrL)'), 'paper sheets keep theirs');
 });

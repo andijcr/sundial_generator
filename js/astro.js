@@ -100,6 +100,9 @@ export function sunsetHourAngle(lat, decl) {
 
 // ---- Reference year for dial curves (any non-leap year near today works) ----
 export const REF_YEAR = 2027;
+/** Day index (0 = Jan 1) of month mo (0-based), day d in the reference year (29 Feb, absent there, is 1 Mar). */
+export const dayOfYear = (mo, d) => Math.round((Date.UTC(REF_YEAR, mo, d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+
 /** Noon UTC on day index i (0 = Jan 1) of the reference year. */
 export function dayMs(i, year = REF_YEAR) {
   return utcMs(year, 0, 1 + i, 12);
@@ -144,6 +147,9 @@ export function yearCorrections(lon, tz, rule) {
 
 /** The same correction at one instant, given the equation of time then (minutes): { solar, zone }. The one place the formulas live. */
 export const correctionAt = (lon, tz, eot) => ({ solar: lonCorrection(lon, tz) - eot, zone: -eot });
+
+/** The other way round: the hour angle (deg) of the sun at standard clock time zoneMin (minutes after midnight), from correctionAt. */
+export const hourAngleAtClock = (zoneMin, lon, tz, eot) => (zoneMin - correctionAt(lon, tz, eot).solar - 720) / 4;
 
 /** Format minutes after midnight as HH:MM (wraps around 24 h, rounds to the minute). */
 export function fmtHM(min) {
