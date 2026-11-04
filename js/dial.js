@@ -97,6 +97,11 @@ export function dialFrame(D, plane = 'wall') {
  */
 export const BLADE_RATIO = 1;
 export const bladeHeight = (L, r = BLADE_RATIO) => L * r;
+/**
+ * Which way the blade's base runs from F along the dial's y axis: up on a wall (the shadows fall below F), towards the
+ * equator on a horizontal plate (the noon shadow falls towards the pole, and the blade must not stand on it).
+ */
+export const bladeSign = (lat, plane = 'wall') => (plane === 'horizontal' && lat >= 0 ? -1 : 1);
 
 /** Direction of the north celestial pole in [east, north, up]. */
 export function poleAxis(lat) {
@@ -127,20 +132,21 @@ export function styleRoot(lat, L, fr) {
 }
 
 /**
- * Classical dialling angles (degrees). A vertical declining dial: style height, substyle from the vertical, longitude
- * difference. A horizontal dial: the style rises at the latitude along the meridian, so SH = |latitude|, SD = DL = 0.
+ * Classical dialling angles (degrees): style height, substyle (direction from F to the root, from "up" on the dial: the
+ * vertical on a wall, north on a horizontal plate), longitude difference. A horizontal dial: SH = |latitude|, the substyle
+ * is the meridian (SD 180° in the north, where R lies south of F; 0° in the south) and DL = 0.
  */
 export function dialAngles(lat, D, plane = 'wall') {
-  if (plane === 'horizontal') return { SH: Math.abs(lat), SD: 0, DL: 0 };
-  const fr = wallFrame(D);
+  const fr = dialFrame(D, plane);
   const p = poleAxis(lat);
   const pn = dot(p, fr.n);
   const SH = Math.asin(Math.min(1, Math.abs(pn))) * RAD; // style height
   // substyle: direction from F to the root, measured from the upward vertical, + to the right
   const R = styleRoot(lat, 1, fr);
-  const SD = R ? Math.atan2(R[0], R[1]) * RAD : 90 * Math.sign(-dot(p, fr.u) || 1);
+  let SD = R ? Math.atan2(R[0], R[1]) * RAD : 90 * Math.sign(-dot(p, fr.u) || 1);
+  if (SD <= -180 + 1e-9) SD += 360; // straight down is 180°, not −180° (atan2 of −0)
   // longitude difference: hour angle of the sun when it lies in the plane through the substyle
-  const DL = Math.atan2(Math.sin(D * DEG), Math.sin(lat * DEG) * Math.cos(D * DEG)) * RAD;
+  const DL = plane === 'horizontal' ? 0 : Math.atan2(Math.sin(D * DEG), Math.sin(lat * DEG) * Math.cos(D * DEG)) * RAD;
   return { SH, SD, DL };
 }
 
@@ -266,7 +272,8 @@ export function coreBBox(lat, D, grazing, includeRoot, extraTop = 0, plane = 'wa
       y0 = Math.min(y0, R[1]); y1 = Math.max(y1, R[1]);
     }
   }
-  y1 = Math.max(y1, extraTop); // room above the foot, e.g. for the blade (in units of L)
+  // room beside the foot for the blade (in units of L): above it when positive, below it when negative
+  if (extraTop >= 0) y1 = Math.max(y1, extraTop); else y0 = Math.min(y0, extraTop);
   return { x0, x1, y0, y1, n };
 }
 
@@ -774,8 +781,9 @@ export function computeDial(cfg) {
       }, lim), clip);
       if (!cl.length) continue;
       lines.push(...cl);
-      const top = cl.flat().reduce((a, b) => (b[1] > a[1] ? b : a));
-      const q = clampIn([top[0], top[1] + fs * 0.6]);
+      const far = (q) => (plane === 'horizontal' ? Math.hypot(q[0], q[1]) : q[1]);
+      const top = cl.flat().reduce((a, b) => (far(b) > far(a) ? b : a));
+      const n = Math.hypot(top[0], top[1]) || 1, q = clampIn(plane === 'horizontal' ? [top[0] * (1 + fs * 0.6 / n), top[1] * (1 + fs * 0.6 / n)] : [top[0], top[1] + fs * 0.6]);
       labels.push({ x: q[0], y: q[1], text: ((A + 180) % 360) + '°', cls: 'az', size: 0.6 });
     }
     add('azimuth', 'az', lines, labels);
@@ -809,7 +817,7 @@ export function computeDial(cfg) {
   // ---------- Warnings & stats ----------
   const warnings = [];
   const stats = sunStats(lat, D, cfg.horizon || [], plane);
-  if (Math.abs(lat) < 10) warnings.push(['nearEquator']);
+  if (plane === 'wall' && Math.abs(lat) < 10) warnings.push(['nearEquator']); // a level plate has no such trouble (rootFar says what matters)
   // these two only concern the triangular polar style
   if (o.gPolar && !root) warnings.push(['polarParallel']);
   else if (o.gPolar && Math.hypot(root[0], root[1]) > 4 * L) warnings.push(['rootFar', (Math.hypot(root[0], root[1]) / L).toFixed(1)]);
@@ -820,5 +828,5 @@ export function computeDial(cfg) {
   if (b.n && (b.x0 * L < clip.x0 - 1 || b.x1 * L > clip.x1 + 1 || b.y0 * L < clip.y0 - 1 || b.y1 * L > clip.y1 + 1)) warnings.push(['clipped']);
   if (root && (root[0] < clip.x0 - m || root[0] > clip.x1 + m || root[1] < clip.y0 - m || root[1] > clip.y1 + m) && o.gPolar) warnings.push(['rootOutside']);
 
-  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs, bladeH: bladeHeight(L, o.bladeR ?? BLADE_RATIO), horizon: cfg.horizon || [] };
+  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs, bladeH: bladeHeight(L, o.bladeR ?? BLADE_RATIO), bladeY: bladeSign(lat, plane) * bladeHeight(L, o.bladeR ?? BLADE_RATIO), horizon: cfg.horizon || [] };
 }

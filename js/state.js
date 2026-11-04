@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn, PLANES } from './dial.js';
+import { computeDial, autoFit, bladeSign, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn, PLANES } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor, faceSheetSize, gnomonSheetFor, tileLayout } from './svg.js';
 
@@ -85,7 +85,7 @@ export function sanitize(input) {
   }
   // outside the tropics, walls facing away from the sun are not offered
   const lim = wallLimit(s.lat);
-  if (Math.abs(s.D) > lim) { s.D = Math.sign(s.D) * lim; warnings.push(['wallClamped']); }
+  if (Math.abs(s.D) > lim) { s.D = Math.sign(s.D) * lim; if (s.plane !== 'horizontal') warnings.push(['wallClamped']); } // D does not apply to a level plate
   s.rodX = Math.round(s.rodX * 10) / 10; // in tenths: the templates print it
   if (!['paper', 'tile', 'laser'].includes(s.material)) s.material = 'paper';
   if (!PLANES.includes(s.plane)) s.plane = 'wall';
@@ -133,7 +133,7 @@ export function buildDial(s, t) {
   if (s.auto) {
     // extra room around the shadow region for the hour labels
     fit = autoFit(s.lat, D, { ...plate, margin: plate.margin + fs * 1.6 }, s.grazing, s.includeRoot && s.gPolar, bottomReserve,
-      s.includeRoot && s.gBlade ? s.bladeR : 0, s.plane);
+      (s.includeRoot && s.gBlade ? s.bladeR : 0) * bladeSign(s.lat, s.plane), s.plane);
     L = r2(fit.L, 1); fx = r2(fit.fx, 0.5); fy = r2(fit.fy, 0.5);
   }
   const dial = computeDial({

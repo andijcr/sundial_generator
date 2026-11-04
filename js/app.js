@@ -71,7 +71,7 @@ function writeControls() {
   const lim = wallLimit(state.lat); // set before the values below: assigning a value clamps it to the current range
   // a horizontal dial has no wall direction: its top edge is turned to true north
   const flat = state.plane === 'horizontal';
-  for (const el of $$('[data-k="D"], #wallPreset, #mShadowApply, #mCompassApply')) el.disabled = flat;
+  for (const el of $$('[data-k="D"], #wallPreset, #mShadowApply, #mCompassApply, #mMeanApply')) el.disabled = flat;
   for (const el of $$('[data-k="D"]')) { el.min = -lim; el.max = lim; }
   $('#wallRange').textContent = t(lim === 180 ? 'wallRangeAny' : 'wallRangeSun');
   for (const el of $$('[data-k]')) {
@@ -144,7 +144,8 @@ function update() {
   fillWallPresets(false);
   writeControls();
   const all = [...warns, ...dial.warnings];
-  $('#warnings').innerHTML = all.map(([k, ...a]) => `<li>⚠ ${t('w_' + k, ...a)}</li>`).join('');
+  const tw = planeT(state, t); // a horizontal dial: 'the plate', not 'the wall'
+  $('#warnings').innerHTML = all.map(([k, ...a]) => `<li>⚠ ${tw('w_' + k, ...a)}</li>`).join('');
   updateLearn();
   updateTiles();
   time.trail = [];
@@ -197,7 +198,7 @@ function bindSunHover() {
     const d = yearTable()[col.i], code = col.codes[k];
     const s = sunVector(d.decl, hourAngleAtClock((k + 0.5) * grid.stepMin, state.lon, state.tz, d.eot), state.lat);
     const name = { [SUN.night]: t('sunNight'), [SUN.behind]: t('sunBehind'), [SUN.hidden]: t('sunHidden'), [SUN.graze]: planeT(state, t)('sunGraze', state.grazing), [SUN.lit]: planeT(state, t)('sunLit') }[code];
-    const extra = code === SUN.night ? '' : ` · ${t('sunTipSun', altAz(s).alt.toFixed(0), (Math.asin(Math.max(-1, Math.min(1, dot(s, dial.frame.n)))) * RAD).toFixed(0))}`;
+    const extra = code === SUN.night ? '' : ` · ${planeT(state, t)('sunTipSun', altAz(s).alt.toFixed(0), (Math.asin(Math.max(-1, Math.min(1, dot(s, dial.frame.n)))) * RAD).toFixed(0))}`;
     tip.textContent = t('sunTip', `${d.dom} ${t('monthsShort')[d.m]}`, fmtHM(k * grid.stepMin), name) + extra;
     tip.hidden = false;
     const r = box.getBoundingClientRect(), tw = tip.offsetWidth; // centred on the pointer, but kept inside the chart
@@ -449,7 +450,7 @@ function ctx() {
   return { s: state, t, place: PRESETS[state.place]?.name || '', dateStr: new Date().toISOString().slice(0, 10) };
 }
 function base() {
-  return `sundial-${state.place}-D${state.D}`;
+  return `sundial-${state.place}-${state.plane === 'horizontal' ? 'horizontal' : `D${state.D}`}`;
 }
 function download(name, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' }));

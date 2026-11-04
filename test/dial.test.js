@@ -1291,7 +1291,8 @@ test('horizontal dial: frame, hour lines tan θ = sin φ tan H, style root, angl
     // noon: the shadow lies on the meridian, pointing away from the sun
     const N = shadowPoint(sunVector(10, 0, lat), 50, fr);
     near(N[0], 0, 1e-9); assert.ok(Math.sign(N[1]) === Math.sign(lat), 'noon shadow towards the pole');
-    assert.deepEqual(dialAngles(lat, 45, 'horizontal'), { SH: Math.abs(lat), SD: 0, DL: 0 });
+    const a = dialAngles(lat, 45, 'horizontal');
+    near(a.SH, Math.abs(lat), 1e-9, 'SH'); near(Math.abs(a.SD), lat > 0 ? 180 : 0, 1e-9, 'substyle: the meridian, towards R'); assert.equal(a.DL, 0);
   }
   // the sheets: the plate's wording, the N arrow, no wall direction; the URL keeps the plane; the wall dial is the same as before
   const t = makeT('en'), { s } = sanitize({ ...DEFAULTS, plane: 'horizontal' }), dial = buildDial(s, t);
@@ -1308,6 +1309,20 @@ test('horizontal dial: frame, hour lines tan θ = sin φ tan H, style root, angl
   assert.ok(!serializeState(sanitize({ ...DEFAULTS }).s).includes('plane'));
   const w = buildDial(sanitize({ ...DEFAULTS }).s, t), w2 = buildDial(sanitize({ ...DEFAULTS, plane: 'wall' }).s, t);
   assert.equal(svgDoc(faceSheet(w, { s: sanitize({ ...DEFAULTS }).s, t })), svgDoc(faceSheet(w2, { s: sanitize({ ...DEFAULTS }).s, t })));
+  // the blade stands towards the equator, off the noon shadow; the N arrow is on every material; no wall-only warnings
+  for (const lat of [41.9, -33.87]) {
+    const sb = sanitize({ ...DEFAULTS, plane: 'horizontal', gBlade: true, lat }).s, db = buildDial(sb, t);
+    const noon = shadowPoint(sunVector(lat > 0 ? 23.44 : -23.44, 0, lat), db.L, db.frame);
+    assert.ok(Math.sign(db.bladeY) === -Math.sign(noon[1]) && db.bladeY * db.L !== 0, `blade opposite the noon shadow at ${lat}`);
+    assert.ok(db.plate.fy - db.bladeY <= db.plate.h && db.plate.fy - db.bladeY >= 0, 'the blade fits on the plate');
+  }
+  assert.equal(buildDial(sanitize({ ...DEFAULTS, gBlade: true }).s, t).bladeY, buildDial(sanitize({ ...DEFAULTS, gBlade: true }).s, t).bladeH, 'a wall: up');
+  for (const material of ['paper', 'laser']) {
+    const sl = sanitize({ ...DEFAULTS, plane: 'horizontal', material }).s;
+    assert.match(svgDoc(faceSheet(buildDial(sl, t), { s: sl, t })), />N<\/text>/, `N on ${material}`);
+  }
+  const eq = sanitize({ ...DEFAULTS, plane: 'horizontal', lat: 5, D: 150 });
+  assert.ok(!eq.warnings.some((w) => w[0] === 'wallClamped') && !buildDial(eq.s, t).warnings.some((w) => w[0] === 'nearEquator'));
   // every string with a plate variant exists in both languages
   for (const k of Object.keys(STRINGS.en).filter((k) => /H$/.test(k) && k.slice(0, -1) in STRINGS.en)) assert.ok(k in STRINGS.it, k);
 });

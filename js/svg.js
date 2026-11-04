@@ -9,6 +9,9 @@ import { makeT, STRINGS } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
 /** A translator that, for a horizontal dial, uses the plate's wording (key + 'H') where there is one instead of the wall's. */
+/** How the dial is turned: the wall's direction, or (horizontal) the top edge to true north. long: with the compass azimuth. */
+const planeDir = (s, t, long) => (s.plane === 'horizontal' ? t('planeHShort')
+  : long ? `D = ${s.D.toFixed(1)}° ${t('dRef')} (${t('faces')} ${((180 + absoluteDeclination(s.lat, s.D) + 360) % 360).toFixed(1)}° N→E)` : `D = ${s.D.toFixed(1)}°`);
 export const planeT = (s, t) => (s.plane === 'horizontal' ? (k, ...a) => t(Object.hasOwn(STRINGS.en, k + 'H') ? k + 'H' : k, ...a) : t);
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -157,6 +160,12 @@ export function dialMarkup(dial, ctx) {
   if (dial.root && s.gPolar) {
     out += `<circle class="mark" cx="${f(P.fx + dial.root[0])}" cy="${f(P.fy - dial.root[1])}" r="${f(fs * 0.25)}"/>`;
   }
+  if (s.plane === 'horizontal') {
+    // a horizontal plate is turned with its top edge to true north: an arrow and N in the top margin, over F
+    const a = Math.max(2.5, Math.min(fs, P.margin * 0.75)), y0 = (P.margin - a) / 2;
+    out += `<path class="mark" d="M${f(P.fx)} ${f(y0)}l${f(-a * 0.4)} ${f(a)}h${f(a * 0.8)}z"/>`;
+    out += `<text class="info" x="${f(P.fx + a * 0.6)}" y="${f(y0 + a * 0.85)}" font-size="${f(a)}" font-weight="bold">N</text>`;
+  }
   const yb = P.h - P.margin - fs * 0.6;
   if (s.xInfo) {
     const txt = `${Math.abs(s.lat).toFixed(2)}°${s.lat >= 0 ? 'N' : 'S'} ${Math.abs(s.lon).toFixed(2)}°${s.lon >= 0 ? 'E' : 'W'}${s.plane === 'horizontal' ? '' : ` · D ${s.D.toFixed(1)}°`} · L ${dial.L.toFixed(0)} mm`;
@@ -180,7 +189,7 @@ export function frontViewSvg(dial, ctx) {
   }
   if (ctx.s.gBlade) {
     // seen from the front the blade is edge-on: a vertical bar from F up to height h
-    g += `<line x1="${f(P.fx)}" y1="${f(P.fy)}" x2="${f(P.fx)}" y2="${f(P.fy - dial.bladeH)}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
+    g += `<line x1="${f(P.fx)}" y1="${f(P.fy)}" x2="${f(P.fx)}" y2="${f(P.fy - dial.bladeY)}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
   }
   // rod and blade both point at the viewer from F: one dot
   if (ctx.s.gRod || ctx.s.gBlade) g += `<circle cx="${f(P.fx)}" cy="${f(P.fy)}" r="${f(dial.fontSize * 0.35)}" fill="#2b2b2b"/>`;
@@ -212,7 +221,7 @@ export function shadowMarkup(dial, ctx, S, trail) {
       out += `<polygon points="${X(Rt)},${Y(Rt)} ${X(Fp)},${Y(Fp)} ${X(Ep)},${Y(Ep)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gBlade) {
-      const A = [0, dial.bladeH];
+      const A = [0, dial.bladeY];
       out += `<polygon points="${X(A)},${Y(A)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gRod) {
@@ -288,7 +297,7 @@ function summaryLines(dial, ctx) {
     : [s.hSolar && t('hSolar'), s.hZone && t('hZone'), s.anaMeanNoon && t('anaMeanNoon'), (s.anaZoneNoon || s.anaHours) && (s.anaHours ? t('anaHours') : t('anaZoneNoon'))]).filter(Boolean).join(' · ');
   return [
     `${ctx.place ? ctx.place + ' — ' : ''}${latLon(s)}, UTC${s.tz >= 0 ? '+' : ''}${s.tz} (${s.dst})`,
-    `${s.plane === 'horizontal' ? t('planeHShort') : `D = ${s.D.toFixed(1)}° ${t('dRef')} (${t('faces')} ${((180 + absoluteDeclination(s.lat, s.D) + 360) % 360).toFixed(1)}° N→E)`} · L = ${mm(dial.L)} · ${mm1(dial.plate.w)} × ${mm1(dial.plate.h)} mm`,
+    `${planeDir(s, t, true)} · L = ${mm(dial.L)} · ${mm1(dial.plate.w)} × ${mm1(dial.plate.h)} mm`,
     `${t('SH')} ${a.SH.toFixed(2)}° · ${t('SD')} ${a.SD.toFixed(2)}° · ${t('DL')} ${a.DL.toFixed(2)}°`,
     systems,
   ];
@@ -325,7 +334,7 @@ const mm1 = (x) => String(+x.toFixed(1)); // 600, or 600.4 for a plate typed to 
 function briefLines(dial, s, t) {
   const P = dial.plate;
   return [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
-    `${latLon(s)} · ${s.plane === 'horizontal' ? t('planeHShort') : `D = ${s.D.toFixed(1)}°`} · L = ${mm(dial.L)} · ${mm1(P.w)} × ${mm1(P.h)} mm`,
+    `${latLon(s)} · ${planeDir(s, t, false)} · L = ${mm(dial.L)} · ${mm1(P.w)} × ${mm1(P.h)} mm`,
     ...platePos(dial, s, t)];
 }
 /** ["F: x mm from the left edge, y mm from the top", "R: …"]: where the foot and the style root are on the plate. */
@@ -384,12 +393,12 @@ export function faceSheet(dial, ctx) {
   if (s.material !== 'laser') {
     g += `<path class="l-construct" d="M${f(P.fx)} 0V${f(P.h)}"/>`;
     // the line's label reads upwards near the top of it; when the style root sits there, it goes to the bottom instead
-    const lbl = t('plumb'), len = lbl.length * 1.95, top = P.h * 0.04 + 10, ry = dial.root && s.gPolar ? P.fy - dial.root[1] : -1e9;
-    const low = ry > top - 6 && ry < top + len + 6, ly = low ? P.h - P.h * 0.04 - 10 : top;
-    g += `<text class="dt" x="${f(P.fx + 2.5)}" y="${f(ly)}" transform="rotate(-90 ${f(P.fx + 2.5)} ${f(ly)})" style="text-anchor:${low ? 'start' : 'end'}">${esc(lbl)}</text>`;
+    // on a small plate the label is set smaller, so that it takes at most half the line
+    const lbl = t('plumb'), k = Math.min(1, P.h * 0.5 / (lbl.length * 1.95)), len = lbl.length * 1.95 * k, top = P.h * 0.04 + 10 * k, bot = P.h - P.h * 0.04 - 10 * k;
+    const onLine = dial.root && s.gPolar && Math.abs(dial.root[0]) < 4, ry = onLine ? P.fy - dial.root[1] : -1e9;
+    const low = ry > top - 6 && ry < top + len + 6 && !(ry > bot - len - 6 && ry < bot + 6) && bot - len > 0, ly = low ? bot : top;
+    g += `<text class="dt" x="${f(P.fx + 2.5)}" y="${f(ly)}" transform="rotate(-90 ${f(P.fx + 2.5)} ${f(ly)})" style="text-anchor:${low ? 'start' : 'end'}${k < 1 ? `;font-size:${f(3.5 * k)}px` : ''}">${esc(lbl)}</text>`;
     g += `<text class="dt" x="${f(P.fx - 3)}" y="${f(P.fy - 3)}" style="text-anchor:end">F</text>`;
-    // a horizontal dial: the top edge points to true north, and the meridian through F says so
-    if (s.plane === 'horizontal') g += `<path class="mark" d="M${f(P.fx)} ${f(2)}l-2.5 6h5z"/><text class="dt" x="${f(P.fx + 4)}" y="${f(7)}" style="text-anchor:start;font-weight:bold">N</text>`;
   }
   // dimensions, close to the plate (the short caption gives the positions in words instead)
   if (!s.faceBrief) {
