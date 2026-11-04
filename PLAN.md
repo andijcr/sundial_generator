@@ -114,6 +114,10 @@ longitude + EoT so it reads clock time (analemma per hour line).
   month names go on every wall-clock 8 (all on the 12 o'clock one, Feb/May/Aug/Nov on the others). They replace the
   straight hour lines and the other analemmas. A figure-8's hour number goes at the
   summer end of its part on the plate (none on the plate, no number).
+- Two-point rod (`rodTip`, `tipOn` in `dial.js`: wall-clock 8s and rodX > 1): every curve read on a winter-time day (8
+  pieces, month-start lines and their ticks, the winter solstice, the March equinox) is drawn at rodX x L in the tip classes
+  (`anaRt`/`anaFt`, `dateTip`, `clockTickTip`, text `anaTip`); summer-time ones stay at L. rodX then changes the dial, so
+  `fitGnomonScale` returns null.
 - 10-minute ticks (`dTicks10`, with the wall-clock 8s): on each month-start date line, ticks every 10 wall-clock minutes,
   January to June on the upper side of the line and July to December on the lower side (their lines nearly coincide but
   their times do not). The month lines are drawn with them.

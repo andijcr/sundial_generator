@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn } from './dial.js';
+import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn, tipOn } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor, faceSheetSize, gnomonSheetFor, tileLayout } from './svg.js';
 
@@ -43,7 +43,7 @@ export const DEFAULTS = {
   D: 45, horizon: '',
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
   gPolar: true, gRod: true, rodX: 1, gBlade: false, bladeR: 1,
-  hSolar: true, hZone: false, hHalf: true, hQuarter: false, hTen: false, hRoman: false, hExtend: true, hDstLabels: false, anaClock: false,
+  hSolar: true, hZone: false, hHalf: true, hQuarter: false, hTen: false, hRoman: false, hExtend: true, hDstLabels: false, anaClock: false, rodTip: false,
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
   dSolEq: true, dZodiac: false, dMonths: false, dTicks10: false,
   xItalian: false, xBabylonian: false, xAzimuth: false, xAltitude: false, xSubstyle: true, xInfo: true, motto: '',
@@ -112,7 +112,7 @@ const r2 = (x, q) => Math.round(x / q) * q;
  */
 export const dstLabelsApply = (s) => !clockOn(s) && !!(s.hZone || s.anaZoneNoon || s.anaHours);
 
-export { clockOn }; // defined in dial.js, which the sheets also use
+export { clockOn, tipOn }; // defined in dial.js, which the sheets also use
 
 /** URL-hash form of the state: only values that differ from the defaults. */
 export function serializeState(s) {
@@ -208,7 +208,7 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
  */
 export function fitGnomonScale(s, t, paper, opts = {}) {
   const dial = buildDial(s, t);
-  if (!rodXApplies(s, dial)) return null;
+  if (!rodXApplies(s, dial) || tipOn(s)) return null; // with the tip reading winter time, rodX is part of the dial: never change it
   const fits = (k) => { const sh = gnomonSheetFor(dial, { s: { ...s, rodX: k }, t, place: '', dateStr: '' }, paper, opts); return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1; };
   for (let k10 = ROD_MAX * 10; k10 >= 10; k10--) if (fits(k10 / 10)) return k10 / 10; // from the top: the first that fits is the largest
   return null;

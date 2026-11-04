@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG, norm180 } from '../js/astro.js';
 import { wallClockHourAngle, wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, wallPresetsFor, wallDirectionName } from '../js/state.js';
+import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, tipOn, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt, sunAt, utcFromCivil, REF_YEAR, dayOfYear } from '../js/astro.js';
 import { testSheet, testShadow, testRodLength, TEST_OFFSETS, TEST_BOX, gnomonSheetFor, esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
@@ -127,7 +127,7 @@ test('sheets render for many configurations without NaN', () => {
     { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
-    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { anaClock: true, dTicks10: true }, { anaClock: true, dTicks10: true, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { anaClock: true, gRod: false, gBlade: true }, { hTen: true, hZone: true, hQuarter: true }, { anaClock: true, dTicks10: true, material: 'laser', plateW: 200, plateH: 150 }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
+    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { anaClock: true, dTicks10: true }, { anaClock: true, dTicks10: true, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { anaClock: true, gRod: false, gBlade: true }, { hTen: true, hZone: true, hQuarter: true }, { anaClock: true, dTicks10: true, material: 'laser', plateW: 200, plateH: 150 }, { anaClock: true, rodTip: true, rodX: 2, dTicks10: true, dMonths: true }, { anaClock: true, rodTip: true, rodX: 3, lang: 'it', lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 20 }, { anaClock: true, rodTip: true, rodX: 1.5, dst: 'none' }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
@@ -1320,4 +1320,40 @@ test('shadow test sheet: one A4 page, the dots and the table are the predictions
   const svg = svgDoc(testSheet(dial, { s, t, day: i, dateText: 'x' }));
   if (!testShadow(dial, s, i, 12 * 60) || testRodLength(dial, s, i, TEST_BOX.w, TEST_BOX.h) === Math.round(dial.L)) assert.ok(svg.includes(esc(t('testNoSun', 0, dial.L.toFixed(0))).split(' ').slice(0, 8).join(' ')), 'says the sun only grazes the wall');
   assert.ok(!/NaN|undefined|Infinity/.test(svg));
+});
+
+test('two-point rod: winter time at the tip (k x L, blue), summer time at the notch (L, red), and only where it applies', () => {
+  const t = makeT('en');
+  const base = { ...DEFAULTS, D: 0, anaClock: true, dTicks10: true, auto: false, L: 29, plateW: 285, plateH: 174, fx: 142.5, fy: 60 };
+  const { s } = sanitize({ ...base, rodTip: true, rodX: 2 }), dial = buildDial(s, t), Y = yearTable(), k = s.rodX;
+  assert.ok(tipOn(s));
+  for (const c of [{ rodTip: true, rodX: 1 }, { rodTip: true, rodX: 2, anaClock: false }, { rodTip: true, rodX: 2, gRod: false, gBlade: true }, { rodTip: false, rodX: 2 }]) {
+    const sc = sanitize({ ...base, ...c }).s;
+    assert.ok(!tipOn(sc) && !buildDial(sc, t).layers.some((l) => /Tip$|^ana[RF]t$/.test(l.id)), `no tip curves for ${JSON.stringify(c)}`);
+  }
+  const ptsOf = (re) => dial.layers.filter((l) => re.test(l.id)).flatMap((l) => l.lines.flat());
+  const onto = (pts, P) => Math.min(...pts.map((q) => Math.hypot(q[0] - P[0], q[1] - P[1])));
+  const at = (mo, d, h, Lx) => shadowPoint(sunVector(Y[dayOfYear(mo, d)].decl, wallClockHourAngle(dayOfYear(mo, d), h * 60, s.lon, s.tz, s.dst), s.lat), Lx, dial.frame);
+  // a winter day: the tip's shadow (k x L) is on a blue (tip) curve; a summer day: the notch's shadow (L) on a red one
+  assert.ok(onto(ptsOf(/^ana[RF]t$/), at(0, 15, 12, k * dial.L)) < 0.6, 'January noon: on a tip curve, at k x L');
+  assert.ok(onto(ptsOf(/^ana[RF]s$/), at(6, 15, 13, dial.L)) < 0.6, 'July 13:00: on a notch curve, at L');
+  assert.ok(onto(ptsOf(/^ana[RF]t$/), at(0, 15, 12, dial.L)) > 3, 'not where the notch would put it');
+  // the winter month lines and their ticks, and the winter solstice, at the tip
+  const jan = Y[dayOfYear(0, 1)], P = shadowPoint(sunVector(jan.decl, wallClockHourAngle(jan.i, 12 * 60, s.lon, s.tz, s.dst), s.lat), k * dial.L, dial.frame);
+  assert.ok(dial.layers.find((l) => l.id === 'clockTicksTip').lines.some((l) => Math.hypot(l[0][0] - P[0], l[0][1] - P[1]) < 0.05), 'a January tick at the tip');
+  assert.ok(dial.layers.some((l) => l.id === 'dateMonthsTip' && l.labels.some((lb) => lb.text === '1 Jan')), 'the January line at the tip');
+  assert.ok(dial.layers.some((l) => l.id === 'dateMainTip' && l.labels.some((lb) => lb.text === t('winterSolstice'))), 'the winter solstice at the tip');
+  assert.ok(dial.layers.some((l) => l.id === 'dateMain' && l.labels.some((lb) => lb.text === t('summerSolstice'))), 'the summer solstice at the notch');
+  // numbers of tip pieces are in the tip's colour; black and white tells the families apart
+  assert.ok(dial.layers.flatMap((l) => l.labels).some((lb) => lb.cls === 'anaTip' && /^\d+$/.test(lb.text)), 'blue hour numbers');
+  const css = faceSheet(dial, { s: { ...s, ink: 'bw' }, t }).css, dash = (c) => (css.match(new RegExp(`\\.l-${c}\\{[^}]*stroke-dasharray:([^;}]+)`)) || [])[1] || 'solid';
+  assert.equal(new Set(['anaR', 'anaF', 'anaRs', 'anaFs', 'anaRt', 'anaFt'].map(dash)).size, 6, 'six distinct black-and-white patterns');
+  // the simulation rings the tip's shadow, the template says which point reads which season, and the gnomon fit leaves rodX alone
+  const S = shadowPoint(sunVector(10, 20, s.lat), dial.L, dial.frame);
+  assert.ok(/stroke="#1f5fa8"/.test(shadowMarkup(dial, { s }, S)), 'tip shadow ringed');
+  assert.ok(svgDoc(gnomonSheet(dial, { s, t })).includes(esc(t('rodTipNote', k)).split(' ').slice(0, 5).join(' ')), 'template note');
+  assert.equal(fitGnomonScale({ ...s, paper: 'A4' }, t, 'A4', {}), null, 'rodX is part of the dial now: not fitted');
+  // without summer time every day is winter time: everything at the tip
+  const none = buildDial(sanitize({ ...base, rodTip: true, rodX: 2, dst: 'none' }).s, t);
+  assert.ok(!none.layers.some((l) => /^ana[RF]s?$/.test(l.id) && l.lines.length) && none.layers.some((l) => /^ana[RF]t$/.test(l.id)), 'all at the tip without summer time');
 });

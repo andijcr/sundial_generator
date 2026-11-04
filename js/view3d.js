@@ -7,7 +7,7 @@ import { dot } from './dial.js';
 
 const COLORS = {
   hour: '#1b1b1b', hourMinor: '#777', hourExt: '#999', zone: '#1f5fa8', zoneMinor: '#7fa3cf', zoneExt: '#9bb6d8',
-  anaR: '#c0392b', anaF: '#c0392b', anaRs: '#d98880', anaFs: '#d98880', tick: '#c0392b', date: '#2a7f62', dateMinor: '#6aa88f',
+  anaR: '#c0392b', anaF: '#c0392b', anaRs: '#d98880', anaFs: '#d98880', anaRt: '#1f5fa8', anaFt: '#1f5fa8', dateTip: '#7fa3cf', tick: '#c0392b', date: '#2a7f62', dateMinor: '#6aa88f',
   ital: '#8e44ad', bab: '#d35400', az: '#999', alt: '#999', construct: '#aaa',
 };
 

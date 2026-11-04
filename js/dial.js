@@ -5,7 +5,7 @@
 // foot F (the point of the wall right behind the nodus), x to the right as you
 // face the wall, y up. The nodus N sits at distance L in front of F.
 
-import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, hourAngleAtClock, isDst } from './astro.js';
+import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, hourAngleAtClock, isDst, dayOfYear } from './astro.js';
 
 export const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -165,6 +165,13 @@ function summerFlags(tz, rule) {
  * and the controls.
  */
 export const clockOn = (s) => !!(s.anaClock && s.gRod);
+
+/**
+ * Two-point rod: with the wall-clock figure-8s and an oversized rod (rodX > 1), winter time is read at the rod's tip, k = rodX
+ * times further out, where the cramped winter part of the dial is k times bigger; summer time stays at the notch (L). The
+ * winter pieces, their month lines and ticks are drawn at k x L (in their own colour), the summer ones at L.
+ */
+export const tipOn = (s) => !!(clockOn(s) && s.rodTip && s.rodX > 1);
 
 export function declLimits() {
   const Y = yearTable();
@@ -522,8 +529,8 @@ export function computeDial(cfg) {
   // ---------- Declination (date) curves ----------
   const Hs = range(-180, 180, 1);
   const zodiacSym = ['♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓'].map((c) => c + '︎');
-  function declCurve(decl, text, cls, f) {
-    const lines = clipAll(trace(Hs, (H) => SP(decl, H), lim), clip);
+  function declCurve(decl, text, cls, f, Lx = L) {
+    const lines = clipAll(trace(Hs, (H) => shadowPoint(sunVector(decl, H, lat), Lx, fr), lim), clip);
     const labels = [];
     if (text) {
       const p = labelAlong(lines, f, fs * 0.55);
@@ -539,13 +546,23 @@ export function computeDial(cfg) {
     }
     add(id, cls, lines, labels);
   }
+  // two-point rod (see tipOn): a date read in winter time is read at the tip, so its line is drawn k times further out
+  const tip = tipOn(o) ? o.rodX : 0, winterDay = (i) => !summerFlags(tz, o.dst)[i];
+  const Lday = (i) => (tip && winterDay(i) ? tip * L : L);
   if (o.dSolEq) {
     const z = o.dZodiac;
-    addCurves('dateMain', 'date', [
-      [dMax, (south ? t('winterSolstice') : t('summerSolstice')) + (z ? ' ' + zodiacSym[3] : ''), 0.15],
-      [0, t('equinox') + (z ? ' ' + zodiacSym[0] + zodiacSym[6] : ''), 0.15],
-      [dMin, (south ? t('summerSolstice') : t('winterSolstice')) + (z ? ' ' + zodiacSym[9] : ''), 0.15],
-    ]);
+    // each line with the days it stands for: the June solstice, the equinoxes (March and September), the December solstice
+    const lines = [
+      [dMax, (south ? t('winterSolstice') : t('summerSolstice')) + (z ? ' ' + zodiacSym[3] : ''), [dayOfYear(5, 21)]],
+      [0, t('equinox') + (z ? ' ' + zodiacSym[0] + zodiacSym[6] : ''), [dayOfYear(2, 20), dayOfYear(8, 22)]],
+      [dMin, (south ? t('summerSolstice') : t('winterSolstice')) + (z ? ' ' + zodiacSym[9] : ''), [dayOfYear(11, 21)]],
+    ];
+    addCurves('dateMain', 'date', lines.filter(([, , days]) => days.some((i) => Lday(i) === L)).map(([d, txt]) => [d, txt, 0.15]));
+    if (tip) { // the ones read in winter time, again at the tip
+      const ls = [], lbs = [];
+      for (const [d, txt, days] of lines) if (days.some((i) => Lday(i) !== L)) { const c = declCurve(d, txt, 'dateTip', 0.15, tip * L); ls.push(...c.lines); lbs.push(...c.labels); }
+      add('dateMainTip', 'dateTip', ls, lbs);
+    }
   }
   if (o.dZodiac) {
     const eps = 23.4393;
@@ -555,10 +572,19 @@ export function computeDial(cfg) {
     addCurves('dateZodiac', 'dateMinor', list);
   }
   const ticks10 = clock && o.dTicks10; // the ticks sit on the month-start lines, so those are drawn with them
+  // two-point rod: the months whose 1st is in winter time are read at the tip, so their line is drawn k times further out
   if (o.dMonths || ticks10) {
-    const Y = yearTable();
-    const list = Y.filter((d) => d.dom === 1).map((d) => [d.decl, '1 ' + months[d.m], d.m < 6 ? 0.55 : 0.4]);
+    const Y = yearTable(), firsts = Y.filter((d) => d.dom === 1);
+    const list = firsts.filter((d) => Lday(d.i) === L).map((d) => [d.decl, '1 ' + months[d.m], d.m < 6 ? 0.55 : 0.4]);
     addCurves('dateMonths', 'dateMinor', list);
+    if (tip) {
+      const lines = [], labels = [];
+      for (const d of firsts.filter((x) => Lday(x.i) !== L)) {
+        const c = declCurve(d.decl, '1 ' + months[d.m], 'dateTip', d.m < 6 ? 0.55 : 0.4, Lday(d.i));
+        lines.push(...c.lines); labels.push(...c.labels);
+      }
+      add('dateMonthsTip', 'dateTip', lines, labels);
+    }
   }
 
   // ---------- Analemmas ----------
@@ -566,12 +592,14 @@ export function computeDial(cfg) {
   // summer(i), for the wall-clock 8s: summer time is in force on day i. Those parts are drawn lighter, and every piece of the
   // curve gets its hour number (at the winter end and on both sides of each jump), because where summer time starts or ends
   // the curve of one hour carries on where another hour's curve was: following a line across a jump changes the hour.
-  function analemma(Hof, hourLabel, monthLabels, dstLabel, summer = null) {
+  function analemma(Hof, hourLabel, monthLabels, dstLabel, summer = null, Lof = null) {
     const Y = yearTable();
     const Hs8 = Y.map((d, i) => Hof(i));
-    const pts = Y.map((d, i) => SP(d.decl, Hs8[i]));
+    const pts = Y.map((d, i) => (Lof ? shadowPoint(sunVector(d.decl, Hs8[i], lat), Lof(i), fr) : SP(d.decl, Hs8[i])));
+    // a piece read at the tip (two-point rod): its own layers, and its numbers and month names in the tip's colour
+    const atTip = (i) => !!(Lof && Lof(i) !== L), txtCls = (i) => (atTip(i) ? 'anaTip' : 'ana');
     const jump = (i, j) => Math.abs(norm180(Hs8[j] - Hs8[i])) > 5;
-    const parts = { R: [], F: [], Rs: [], Fs: [] }, jumps = []; // rising / falling branch, s: summer time
+    const parts = { R: [], F: [], Rs: [], Fs: [], Rt: [], Ft: [] }, jumps = []; // rising / falling branch, s: summer time, t: at the tip
     let cur = null, curKey = null;
     for (let i = 0; i < Y.length; i++) {
       const j = (i + 1) % Y.length;
@@ -581,7 +609,7 @@ export function computeDial(cfg) {
         if (cur) parts[curKey].push(cur);
         cur = null; continue;
       }
-      const key = (Y[j].decl > Y[i].decl ? 'R' : 'F') + (summer && summer(i) ? 's' : '');
+      const key = (Y[j].decl > Y[i].decl ? 'R' : 'F') + (summer && summer(i) ? 's' : atTip(i) ? 't' : '');
       if (!cur || key !== curKey) {
         if (cur) parts[curKey].push(cur);
         cur = [a]; curKey = key;
@@ -609,7 +637,7 @@ export function computeDial(cfg) {
         ticks.push([p, [p[0] + nx * tl, p[1] + ny * tl]]);
         if (monthLabels === true || (monthLabels && monthLabels.includes(Y[i].m))) { // all months, or the listed ones
           const q = [p[0] + nx * (tl + fs * 0.7), p[1] + ny * (tl + fs * 0.7)];
-          if (q[0] > clip.x0 && q[0] < clip.x1 && q[1] > clip.y0 && q[1] < clip.y1) labels.push({ x: q[0], y: q[1], text: months[Y[i].m], cls: 'ana', size: 0.6, month: true });
+          if (q[0] > clip.x0 && q[0] < clip.x1 && q[1] > clip.y0 && q[1] < clip.y1) labels.push({ x: q[0], y: q[1], text: months[Y[i].m], cls: txtCls(i), size: 0.6, month: true });
         }
       }
     }
@@ -617,10 +645,10 @@ export function computeDial(cfg) {
     // the day whose point on the plate has the highest (sign +1, summer) or lowest (-1, winter) declination, or -1
     const extremeOnPlate = (sign) => Y.reduce((k, d, i) => (onPlate(pts[i]) && (k < 0 || sign * (d.decl - Y[k].decl) > 0) ? i : k), -1);
     const placed = []; // where this 8's numbers went, so one spot never gets two copies
-    const addNumber = (q, size) => {
+    const addNumber = (q, size, i) => {
       if (placed.some((r) => Math.hypot(r[0] - q[0], r[1] - q[1]) < fs * 1.5)) return;
       placed.push(q);
-      labels.push({ x: q[0], y: q[1], text: hourLabel, cls: 'ana', size });
+      labels.push({ x: q[0], y: q[1], text: hourLabel, cls: txtCls(i), size });
     };
     if (hourLabel && summer) {
       // each side of a jump: a little way into its own piece, beside the line (away from the 8's middle)
@@ -631,14 +659,14 @@ export function computeDial(cfg) {
           const tx = q0[0] - p[0], ty = q0[1] - p[1], tn = Math.hypot(tx, ty) || 1;
           let nx = -ty / tn, ny = tx / tn;
           if ((p[0] - cx) * nx + (p[1] - cy) * ny < 0) { nx = -nx; ny = -ny; }
-          addNumber(clampIn([p[0] + (tx / tn) * fs * 1.2 + nx * fs * 0.7, p[1] + (ty / tn) * fs * 1.2 + ny * fs * 0.7]), 0.7);
+          addNumber(clampIn([p[0] + (tx / tn) * fs * 1.2 + nx * fs * 0.7, p[1] + (ty / tn) * fs * 1.2 + ny * fs * 0.7]), 0.7, e);
         }
       }
       // and the winter (shortest shadow) end of the part on the plate
       const k = extremeOnPlate(-1);
       if (k >= 0) {
         const p = pts[k], dx = p[0] - cx, dy = p[1] - cy, n = Math.hypot(dx, dy) || 1;
-        addNumber(clampIn([p[0] + (dx / n) * fs * 0.8, p[1] + (dy / n) * fs * 0.8]), 0.8);
+        addNumber(clampIn([p[0] + (dx / n) * fs * 0.8, p[1] + (dy / n) * fs * 0.8]), 0.8, k);
       }
     }
     if (hourLabel) {
@@ -648,7 +676,7 @@ export function computeDial(cfg) {
         const p = pts[k];
         const dx = p[0] - cx, dy = p[1] - cy, n = Math.hypot(dx, dy) || 1;
         const q = clampIn([p[0] + (dx / n) * fs * 0.9, p[1] + (dy / n) * fs * 0.9]);
-        const main = { x: q[0], y: q[1], text: hourLabel, cls: 'ana' };
+        const main = { x: q[0], y: q[1], text: hourLabel, cls: txtCls(k) };
         // the summer end is the main number: a jump or winter copy already in this spot gives way to it
         for (let j = labels.length - 1; j >= 0; j--) if (labels[j].text === hourLabel && labels[j].size && !labels[j].month && Math.hypot(labels[j].x - q[0], labels[j].y - q[1]) < fs * 1.5) labels.splice(j, 1);
         labels.push(main);
@@ -670,6 +698,8 @@ export function computeDial(cfg) {
     add('anaF', 'anaF', clipAll(parts.F, clip), labels);
     if (parts.Rs.length) add('anaRs', 'anaRs', clipAll(parts.Rs, clip)); // summer-time parts (none without summer time)
     if (parts.Fs.length) add('anaFs', 'anaFs', clipAll(parts.Fs, clip));
+    if (parts.Rt.length) add('anaRt', 'anaRt', clipAll(parts.Rt, clip)); // read at the tip (two-point rod)
+    if (parts.Ft.length) add('anaFt', 'anaFt', clipAll(parts.Ft, clip));
     add('anaTicks', 'tick', clipAll(ticks, clip));
   }
   const Y8 = yearTable(), mean = (H0) => (i) => H0 + 0.25 * Y8[i].eot; // a fixed mean (zone) time: the equation of time only
@@ -678,7 +708,7 @@ export function computeDial(cfg) {
     // month names: all of them on the 12 o'clock 8, and February, May, August and November (one a season) on the others, so the
     // branch that holds today's date can be found on any 8 without crowding the winter end, where they all meet
     const sf = summerFlags(tz, o.dst);
-    for (let h = 0; h < 24; h++) analemma((i) => wallClockHourAngle(i, h * 60, lon, tz, o.dst), hourText(h), h === 12 ? true : [1, 4, 7, 10], null, (i) => sf[i]);
+    for (let h = 0; h < 24; h++) analemma((i) => wallClockHourAngle(i, h * 60, lon, tz, o.dst), hourText(h), h === 12 ? true : [1, 4, 7, 10], null, (i) => sf[i], tip ? Lday : null);
   } else {
     const noonCount = (o.anaMeanNoon ? 1 : 0) + (o.anaZoneNoon || o.anaHours ? 1 : 0);
     if (o.anaMeanNoon) analemma(mean(0), noonCount > 1 ? t('meanNoonShort') : null, true, null);
@@ -694,14 +724,15 @@ export function computeDial(cfg) {
   // medium on the half hour. Two months of the year share nearly the same line but not the same times, so January to June
   // tick on the upper side of their lines and July to December on the lower side.
   if (ticks10) {
-    const tk = [];
+    const tk = [], tkTip = [];
     for (const d of Y8.filter((x) => x.dom === 1)) {
+      const Lm = Lday(d.i), SPm = (dec, H) => shadowPoint(sunVector(dec, H, lat), Lm, fr), out = Lm !== L ? tkTip : tk;
       // the normal to the left of the shadow's direction of travel through the day; the line's "upper" side is decided once,
       // for the whole line (where most of its normals point up), so a line that turns steep keeps its ticks on one side
       const marks = [];
       for (let T = 0; T < 1440; T += 10) {
         const H = wallClockHourAngle(d.i, T, lon, tz, o.dst);
-        const p = SP(d.decl, H), a = SP(d.decl, H - 0.5), b = SP(d.decl, H + 0.5);
+        const p = SPm(d.decl, H), a = SPm(d.decl, H - 0.5), b = SPm(d.decl, H + 0.5);
         if (!p || !a || !b || p[0] < clip.x0 || p[0] > clip.x1 || p[1] < clip.y0 || p[1] > clip.y1) continue;
         const tx = b[0] - a[0], ty = b[1] - a[1], tn = Math.hypot(tx, ty) || 1;
         marks.push({ p, n: [-ty / tn, tx / tn], T });
@@ -710,10 +741,11 @@ export function computeDial(cfg) {
       const side = (d.m < 6 ? 1 : -1) * up;
       for (const { p, n, T } of marks) {
         const len = (T % 60 === 0 ? 0.7 : T % 30 === 0 ? 0.5 : 0.32) * fs * side;
-        tk.push([p, [p[0] + n[0] * len, p[1] + n[1] * len]]);
+        out.push([p, [p[0] + n[0] * len, p[1] + n[1] * len]]);
       }
     }
     add('clockTicks', 'clockTick', clipAll(tk, clip));
+    if (tkTip.length) add('clockTicksTip', 'clockTickTip', clipAll(tkTip, clip));
   }
 
   // ---------- Italian / Babylonian hours ----------

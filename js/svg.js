@@ -4,7 +4,7 @@
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
 import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections, sunVector } from './astro.js';
-import { absoluteDeclination, clockOn, wallFrame, shadowPoint, wallClockHourAngle, yearTable, dot } from './dial.js';
+import { absoluteDeclination, clockOn, tipOn, wallFrame, shadowPoint, wallClockHourAngle, yearTable, dot } from './dial.js';
 import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
@@ -25,12 +25,13 @@ const LSTYLE = {
   hour: ['#1b1b1b', 1.6], hourMinor: ['#1b1b1b', 0.7], hourFine: ['#1b1b1b', 0.3], hourExt: ['#1b1b1b', 0.5, '2 1.5'],
   zone: ['#1f5fa8', 1.4], zoneMinor: ['#1f5fa8', 0.6], zoneFine: ['#1f5fa8', 0.3], zoneExt: ['#1f5fa8', 0.5, '2 1.5'],
   anaR: ['#c0392b', 1], anaF: ['#c0392b', 1, '3 1.5'], anaRs: ['#c0392b', 0.55], anaFs: ['#c0392b', 0.55, '3 1.5'], tick: ['#c0392b', 1], clockTick: ['#2a7f62', 0.7],
+  anaRt: ['#1f5fa8', 1], anaFt: ['#1f5fa8', 1, '3 1.5'], clockTickTip: ['#1f5fa8', 0.7], dateTip: ['#1f5fa8', 0.6, '4 1.5'], // read at the tip (two-point rod)
   date: ['#2a7f62', 1.1], dateMinor: ['#2a7f62', 0.6, '4 1.5'],
   ital: ['#8e44ad', 0.8], bab: ['#d35400', 0.8],
   az: ['#7a7a7a', 0.6, '1 1.5'], alt: ['#7a7a7a', 0.6, '1 1.5'],
   construct: ['#9a9a9a', 0.6, '6 2 1 2'],
 };
-const TCOLOR = { hour: '#1b1b1b', zone: '#1f5fa8', dst: '#a0700b', ana: '#c0392b', date: '#2a7f62', dateMinor: '#2a7f62', ital: '#8e44ad', bab: '#d35400', az: '#666', alt: '#666' };
+const TCOLOR = { hour: '#1b1b1b', zone: '#1f5fa8', dst: '#a0700b', ana: '#c0392b', anaTip: '#1f5fa8', dateTip: '#1f5fa8', date: '#2a7f62', dateMinor: '#2a7f62', ital: '#8e44ad', bab: '#d35400', az: '#666', alt: '#666' };
 
 // Black-and-white print: no colours, so the line families are told apart by weight and dash pattern
 // (the pattern is in multiples of 4·sw). [weight multiplier, dash]
@@ -38,6 +39,7 @@ const BW_STYLE = {
   hour: [1.6], hourMinor: [0.7], hourFine: [0.3, '1 1'], hourExt: [0.5, '2 1.5'],
   zone: [1.3, '7 2.5'], zoneMinor: [0.6, '7 2.5'], zoneFine: [0.3, '3.5 1.5'], zoneExt: [0.5, '1 2'],
   anaR: [1], anaF: [1, '3 1.5'], anaRs: [0.55, '8 1'], anaFs: [0.55, '2 1.5 0.5 1.5'], tick: [1], clockTick: [0.7], // ticks are a few mm long: solid, like the figure-8s' month ticks
+  anaRt: [1.4, '12 2'], anaFt: [1.4, '5 1 1 1'], clockTickTip: [1.1], dateTip: [0.6, '1.5 1.5'], // read at the tip: heavier
   date: [1.1], dateMinor: [0.6, '4 1.5'],
   ital: [0.8, '9 2 1.5 2'], bab: [0.8, '3 3'],
   az: [0.5, '1 1.5'], alt: [0.5, '0.6 2.4'],
@@ -59,7 +61,7 @@ export function dialCss(material, sw, bw = false) {
   }
   css += `.t{font-family:${material === 'tile' ? 'Georgia,serif' : 'Helvetica,Arial,sans-serif'};text-anchor:middle;dominant-baseline:central}`;
   for (const [k, c] of Object.entries(TCOLOR)) css += `.t-${k}{fill:${black ? '#000' : c}}`;
-  if (bw && !laser) css += '.t-dst{font-style:italic}'; // summer-time numbers lose their amber: set them in italics
+  if (bw && !laser) css += '.t-dst{font-style:italic}.t-anaTip,.t-dateTip{font-weight:bold}'; // summer-time numbers in italics, tip numbers in bold
   css += `.mark{fill:none;stroke:${black ? line : '#333'};stroke-width:${f(laser ? 0.1 : sw * 1.2)}}`;
   css += `.info{fill:${black ? '#000' : '#555'};font-family:Helvetica,Arial,sans-serif}.motto{fill:${black ? '#000' : '#333'};font-family:Georgia,serif;font-style:italic;text-anchor:middle}`;
   return css;
@@ -215,6 +217,8 @@ export function shadowMarkup(dial, ctx, S, trail) {
       // an oversized rod (rodX times longer) casts rodX times the shadow; the dot below, where its notch's shadow falls, is the reading
       const k = ctx.s.rodX > 1 ? ctx.s.rodX : 1, Sr = [Sc[0] * k, Sc[1] * k];
       out += `<line x1="${X([0, 0])}" y1="${Y([0, 0])}" x2="${X(Sr)}" y2="${Y(Sr)}" stroke="rgba(20,20,30,0.45)" stroke-width="${f(Math.max(dial.L * 0.025, 1.5))}" stroke-linecap="round"/>`;
+      // two-point rod: the tip's shadow is the winter reading, ringed in the tip's colour
+      if (tipOn(ctx.s) && n <= big) out += `<circle cx="${X(Sr)}" cy="${Y(Sr)}" r="${f(fs * 0.8)}" fill="none" stroke="#1f5fa8" stroke-width="${f(fs * 0.12)}"/>`;
     }
     if (n <= big) {
       out += `<circle cx="${X(S)}" cy="${Y(S)}" r="${f(fs * 0.35)}" fill="rgba(20,20,30,0.75)"/>`;
@@ -280,7 +284,7 @@ function textLines(x, y, lines, size, gap = 1.45) {
 function summaryLines(dial, ctx) {
   const { s, t } = ctx;
   const a = dial.angles;
-  const systems = (clockOn(s) ? [t('anaClockShort'), s.dTicks10 && t('dTicks10Short')] // the wall-clock 8s replace the rest
+  const systems = (clockOn(s) ? [t('anaClockShort'), s.dTicks10 && t('dTicks10Short'), tipOn(s) && t('rodTipShort', s.rodX)] // the wall-clock 8s replace the rest
     : [s.hSolar && t('hSolar'), s.hZone && t('hZone'), s.anaMeanNoon && t('anaMeanNoon'), (s.anaZoneNoon || s.anaHours) && (s.anaHours ? t('anaHours') : t('anaZoneNoon'))]).filter(Boolean).join(' · ');
   return [
     `${ctx.place ? ctx.place + ' — ' : ''}${latLon(s)}, UTC${s.tz >= 0 ? '+' : ''}${s.tz} (${s.dst})`,
@@ -568,7 +572,7 @@ export function gnomonSheet(dial, ctx) {
     g += dimH(x0, xf, oy + WD + 9, oy + WD, `${kRod}× = ${mm(len)}`);
     g += dimH(xn, xf, oy + WD + 19, oy + WD, `L = ${mm(L)}`);
     const cap = x <= M ? 90 : Math.round(Math.min(90, Math.max(45, (xe - x0 + 30) / 1.6))); // a row of its own: the full width
-    const longLines = wrapText(`${t('rod')}: ${t('rodLongNote', kRod)}`, cap);
+    const longLines = wrapText(`${t('rod')}: ${t(tipOn(s) ? 'rodTipNote' : 'rodLongNote', kRod)}`, cap);
     g += textLines(x0, oy + WD + 28, longLines, 3.4);
     const rightL = Math.max(xe + 4, xf + 3 + (`${EMB} mm ${t('rodEmbed')}`).length * DT_W, x0 + Math.max(...longLines.map((l) => l.length)) * 1.6);
     return { g, next: rightL + 12, right: rightL, bottom: oy + WD + 28 + longLines.length * 3.4 * 1.45, ownRow: !ctx.maxW };
