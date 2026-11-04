@@ -2,7 +2,7 @@
 
 import { isDst, sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
-import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, testSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
+import { planeT, sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, testSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, tipOn } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -69,6 +69,9 @@ function fillWallPresets(force) {
 // ---------------- controls ----------------
 function writeControls() {
   const lim = wallLimit(state.lat); // set before the values below: assigning a value clamps it to the current range
+  // a horizontal dial has no wall direction: its top edge is turned to true north
+  const flat = state.plane === 'horizontal';
+  for (const el of $$('[data-k="D"], #wallPreset, #mShadowApply, #mCompassApply, #mMeanApply')) el.disabled = flat;
   for (const el of $$('[data-k="D"]')) { el.min = -lim; el.max = lim; }
   $('#wallRange').textContent = t(lim === 180 ? 'wallRangeAny' : 'wallRangeSun');
   for (const el of $$('[data-k]')) {
@@ -97,7 +100,7 @@ function writeControls() {
   $('[data-k="rodTip"]').disabled = !clk || !(state.rodX > 1); // needs the wall-clock 8s and an oversized rod (a tip beyond the notch)
   // with the tip reading winter time the multiplier is part of the dial, so the gnomon fit (which changes it) is off
   if (state.rodTip && clk) $('[data-k="fitGnomonX"]').disabled = true;
-  $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;
+  $('#facesAz').textContent = flat ? t('facesFlat') : `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;
   $('#frontWrap').hidden = !state.v2d;
   $('#v3dWrap').hidden = !state.v3d;
   $('.views').classList.toggle('both', state.v2d && state.v3d);
@@ -144,7 +147,8 @@ function update() {
   fillWallPresets(false);
   writeControls();
   const all = [...warns, ...dial.warnings];
-  $('#warnings').innerHTML = all.map(([k, ...a]) => `<li>⚠ ${t('w_' + k, ...a)}</li>`).join('');
+  const tw = planeT(state, t); // a horizontal dial: 'the plate', not 'the wall'
+  $('#warnings').innerHTML = all.map(([k, ...a]) => `<li>⚠ ${tw('w_' + k, ...a)}</li>`).join('');
   updateLearn();
   updateTiles();
   time.trail = [];
@@ -161,15 +165,17 @@ let sunKey = ''; // the marker's current position (redrawn only when it moves)
 function renderSun() {
   sunKey = '';
   const D = absoluteDeclination(state.lat, state.D);
-  const grid = sunlightGrid(state.lat, state.lon, state.tz, D, dial.horizon, state.grazing);
-  const chart = sunChart(grid, { x: 0, y: 0, w: 262, h: 120, t, dst: yearCorrections(state.lon, state.tz, state.dst), grazing: state.grazing });
+  const grid = sunlightGrid(state.lat, state.lon, state.tz, D, dial.horizon, state.grazing, 2, 10, state.plane);
+  const tp = planeT(state, t); // a horizontal dial: 'the plate', not 'the wall'
+  $('[data-i18n="sunTitle"]').textContent = tp('sunTitle');
+  const chart = sunChart(grid, { x: 0, y: 0, w: 262, h: 120, t: tp, dst: yearCorrections(state.lon, state.tz, state.dst), grazing: state.grazing });
   sunView = { grid, chart, D };
   const tip = $('#sunTip');
-  $('#sunGraph').innerHTML = `<svg viewBox="0 0 262 120" role="img" aria-label="${esc(t('sunTitle'))}"><style>${sunChartCss()}</style>${chart.markup}<g id="sc-now"></g></svg>`;
+  $('#sunGraph').innerHTML = `<svg viewBox="0 0 262 120" role="img" aria-label="${esc(tp('sunTitle'))}"><style>${sunChartCss()}</style>${chart.markup}<g id="sc-now"></g></svg>`;
   $('#sunGraph').append(tip);
   const day = (c) => { const d = yearTable()[c.i]; return `${d.dom} ${t('monthsShort')[d.m]}`; };
   const open = dial.horizon.length ? t('sunSummaryHz', grid.avgOpen.toFixed(1)) : '';
-  $('#sunNow').textContent = t('sunSummary', grid.avg.toFixed(1), open, grid.max.litH.toFixed(1), day(grid.max), grid.min.litH.toFixed(1), day(grid.min));
+  $('#sunNow').textContent = tp('sunSummary', grid.avg.toFixed(1), open, grid.max.litH.toFixed(1), day(grid.max), grid.min.litH.toFixed(1), day(grid.min));
 }
 function updateSunMarker() {
   if (!sunView) return;
@@ -194,8 +200,8 @@ function bindSunHover() {
     const min = sunView.chart.t0 + ((p.y - py) / ph) * (sunView.chart.t1 - sunView.chart.t0), k = Math.min(grid.n - 1, Math.floor(min / grid.stepMin));
     const d = yearTable()[col.i], code = col.codes[k];
     const s = sunVector(d.decl, hourAngleAtClock((k + 0.5) * grid.stepMin, state.lon, state.tz, d.eot), state.lat);
-    const name = { [SUN.night]: t('sunNight'), [SUN.behind]: t('sunBehind'), [SUN.hidden]: t('sunHidden'), [SUN.graze]: t('sunGraze', state.grazing), [SUN.lit]: t('sunLit') }[code];
-    const extra = code === SUN.night ? '' : ` · ${t('sunTipSun', altAz(s).alt.toFixed(0), (Math.asin(Math.max(-1, Math.min(1, dot(s, dial.frame.n)))) * RAD).toFixed(0))}`;
+    const name = { [SUN.night]: t('sunNight'), [SUN.behind]: t('sunBehind'), [SUN.hidden]: t('sunHidden'), [SUN.graze]: planeT(state, t)('sunGraze', state.grazing), [SUN.lit]: planeT(state, t)('sunLit') }[code];
+    const extra = code === SUN.night ? '' : ` · ${planeT(state, t)('sunTipSun', altAz(s).alt.toFixed(0), (Math.asin(Math.max(-1, Math.min(1, dot(s, dial.frame.n)))) * RAD).toFixed(0))}`;
     tip.textContent = t('sunTip', `${d.dom} ${t('monthsShort')[d.m]}`, fmtHM(k * grid.stepMin), name) + extra;
     tip.hidden = false;
     const r = box.getBoundingClientRect(), tw = tip.offsetWidth; // centred on the pointer, but kept inside the chart
@@ -227,6 +233,7 @@ function updateCorrectionMarker(sun, c) {
 }
 
 function updateLearn() {
+  for (const el of $$('[data-plane]')) el.hidden = el.dataset.plane !== state.plane;
   const a = dial.angles;
   const subH = 12 + a.DL / 15;
   const v = {
@@ -274,13 +281,13 @@ function renderTime() {
     if (tr) tr.innerHTML = time.trailOn ? trailMarkup(dial, time.trail) : '';
   }
   if (state.v3d) {
-    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: absoluteDeclination(state.lat, state.D), gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, rodX: state.rodX, trail: time.trailOn ? time.trail : [] });
+    view3d.setScene({ dial, sun: sun.vec, decl: sun.decl, lat: state.lat, S, D: absoluteDeclination(state.lat, state.D), plane: state.plane, gPolar: state.gPolar, gRod: state.gRod, gBlade: state.gBlade, rodX: state.rodX, trail: time.trailOn ? time.trail : [] });
   }
   // readout
   updateCorrectionMarker(sun, c);
   updateSunMarker();
   const lit = sun.alt > 0 && S;
-  const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : hidden ? t('rHidden') : t('rBehind');
+  const status = sun.alt <= 0 ? t('rNight') : lit ? planeT(state, t)('rOnWall') : hidden ? t('rHidden') : t('rBehind');
   const zoneRead = sun.solarMin + lonCorrection(state.lon, state.tz);
   $('#readout').innerHTML = [
     `${t('rClock')}: <b>${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)} ${pad2(c.h)}:${pad2(c.mi)}</b> (UTC${c.off >= 0 ? '+' : ''}${c.off}${c.dst ? ' DST' : ''})`,
@@ -291,7 +298,7 @@ function renderTime() {
     `${t('rAlt')}: <b>${sun.alt.toFixed(1)}°</b>`,
     `${t('rAz')}: <b>${sun.az.toFixed(1)}°</b>`,
     `<span class="${lit ? 'state-on' : 'state-off'}">● ${status}</span>`,
-    `${t('rLit')}: <b>${dial.stats.litPerDay.toFixed(1)}</b> ${t('hPerDay')}`,
+    `${planeT(state, t)('rLit')}: <b>${dial.stats.litPerDay.toFixed(1)}</b> ${t('hPerDay')}`,
   ].map((x) => `<span>${x}</span>`).join('');
   const v = { decl: `${fmtSigned(sun.decl, 2)}°`, eot: `${fmtSigned(sun.eot)} min`, H: `${fmtSigned(sun.H)}°` };
   for (const el of $$('[data-v]')) if (el.dataset.v in v) el.textContent = v[el.dataset.v];
@@ -446,7 +453,7 @@ function ctx() {
   return { s: state, t, place: PRESETS[state.place]?.name || '', dateStr: new Date().toISOString().slice(0, 10) };
 }
 function base() {
-  return `sundial-${state.place}-D${state.D}`;
+  return `sundial-${state.place}-${state.plane === 'horizontal' ? 'horizontal' : `D${state.D}`}`;
 }
 function download(name, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' }));

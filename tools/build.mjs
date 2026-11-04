@@ -31,6 +31,7 @@ const variants = {
   'london-south': { place: 'london', ...PRESETS.london, D: 0 },
   'sydney-nw': { place: 'sydney', ...PRESETS.sydney, D: 45 }, // D is measured from the equator side: 45° west of north
   'rome-sw-bw-a3': { ink: 'bw', paper: 'A3', printMargin: 6 }, // black and white, split into A3 pages (orientation chosen automatically)
+  'rome-garden': { plane: 'horizontal', plateW: 400, plateH: 400, anaHours: true }, // horizontal garden dial, top edge to true north
 };
 
 const plans = join(out, 'plans');

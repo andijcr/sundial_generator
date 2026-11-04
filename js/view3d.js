@@ -37,10 +37,11 @@ export class View3D {
     new ResizeObserver(() => this.draw()).observe(canvas);
   }
 
-  resetView(D) { this.yaw = 180 + D - 35; this.pitch = 18; this.zoom = 1; }
+  // a wall is seen from in front of it, a horizontal plate from the south-east, from above
+  resetView(D, plane) { this.yaw = plane === 'horizontal' ? 160 : 180 + D - 35; this.pitch = plane === 'horizontal' ? 50 : 18; this.zoom = 1; }
 
   setScene(sc) {
-    if (this.yaw === null) this.resetView(sc.D);
+    if (this.yaw === null || this.plane !== sc.plane) { this.resetView(sc.D, sc.plane); this.plane = sc.plane; }
     this.scene = sc;
     this.draw();
   }
@@ -104,7 +105,8 @@ export class View3D {
     };
 
     // ground
-    const gz = P.fy - P.h - 0.35 * P.h;
+    const horizontal = sc.plane === 'horizontal';
+    const gz = horizontal ? -0.01 * size : P.fy - P.h - 0.35 * P.h; // a horizontal plate lies just on the ground
     const G = 2.2 * size;
     const c0 = [target[0], target[1], gz];
     poly([[c0[0] - G, c0[1] - G, gz], [c0[0] + G, c0[1] - G, gz], [c0[0] + G, c0[1] + G, gz], [c0[0] - G, c0[1] + G, gz]], dark ? '#2a3324' : '#c9d8b4');
@@ -116,7 +118,7 @@ export class View3D {
     }
     // wall
     const wx0 = -P.fx - 0.5 * P.w, wx1 = P.w - P.fx + 0.5 * P.w, wy1 = P.fy + 0.4 * P.h;
-    poly([W(wx0, gz), W(wx1, gz), W(wx1, wy1), W(wx0, wy1)].map((q) => [q[0], q[1], q[2]]), '#d9c7a7', '#b9a47f');
+    if (!horizontal) poly([W(wx0, gz), W(wx1, gz), W(wx1, wy1), W(wx0, wy1)].map((q) => [q[0], q[1], q[2]]), '#d9c7a7', '#b9a47f');
     // plate & dial lines
     poly([W(-P.fx, P.fy), W(P.w - P.fx, P.fy), W(P.w - P.fx, P.fy - P.h), W(-P.fx, P.fy - P.h)], '#fbf6ea', '#555');
     for (const layer of dial.layers) {
@@ -129,7 +131,7 @@ export class View3D {
       const big = 30 * size, n = Math.hypot(S[0], S[1]);
       const Sc = n > big ? [S[0] / n * big, S[1] / n * big] : S;
       if (sc.gPolar && dial.root) { const k = sc.rodX || 1, [rx, ry] = dial.root; poly([W(rx, ry), W(rx * (1 - k), ry * (1 - k)), W(rx + k * (Sc[0] - rx), ry + k * (Sc[1] - ry))], 'rgba(20,20,30,0.35)'); }
-      if (sc.gBlade) poly([W(0, dial.bladeH), W(0, 0), W(...Sc)], 'rgba(20,20,30,0.35)');
+      if (sc.gBlade) poly([W(0, dial.bladeY), W(0, 0), W(...Sc)], 'rgba(20,20,30,0.35)');
       if (sc.gRod) line([W(0, 0), W(Sc[0] * (sc.rodX || 1), Sc[1] * (sc.rodX || 1))], 'rgba(20,20,30,0.5)', 2);
       if (n <= big) { const q = proj(W(...S)); if (q) { ctx.fillStyle = '#e4572e'; ctx.beginPath(); ctx.arc(q[0], q[1], 3, 0, 7); ctx.fill(); } }
     }
@@ -137,7 +139,7 @@ export class View3D {
     // gnomon
     const N = fr.n.map((v) => v * L);
     if (sc.gPolar && dial.root) { const k = sc.rodX || 1, [rx, ry] = dial.root, R3 = W(rx, ry); poly([R3, W(rx * (1 - k), ry * (1 - k)), N.map((c, i) => R3[i] + k * (c - R3[i]))], 'rgba(60,50,40,0.85)', '#222', 1); }
-    if (sc.gBlade) poly([[0, 0, 0], N, W(0, dial.bladeH)], 'rgba(60,50,40,0.85)', '#222', 1);
+    if (sc.gBlade) poly([[0, 0, 0], N, W(0, dial.bladeY)], 'rgba(60,50,40,0.85)', '#222', 1);
     if (sc.gRod) line([[0, 0, 0], N.map((v) => v * (sc.rodX || 1))], '#222', 3);
     // sun path for the day and sun ray
     const Rs = 1.8 * size;

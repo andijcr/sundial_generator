@@ -41,6 +41,14 @@ the same number means the mirrored wall on the other side of the equator (a
 SW 45° wall in Rome ↔ a NW 45° wall in Sydney). `absoluteDeclination` in
 `dial.js` converts at the boundary; the maths only ever sees D from south.
 
+**Horizontal plate (garden dial).** `dialFrame(D, plane)` returns the wall
+frame above, or, for `plane: 'horizontal'`, n = up, u = east, v = north: the
+plate lies level with its top edge to true north (the user orients it; D plays
+no part). `shadowPoint` and `styleRoot` give x = ·u and y = ·v, so the same
+formula serves both planes and nothing downstream knows which it is. The sheets
+use the plate's wording through `planeT` (`svg.js`), which looks up `key + 'H'`
+where it exists; no other string key may be the name of one plus `H`.
+
 Wall gets sun only when `s · n > 0` — that alone determines the useful
 hours (a SW wall in Rome: roughly 10:00 solar time to sunset).
 
@@ -70,6 +78,9 @@ For a vertical dial at latitude φ with declination D:
 - **Style height** (angle of polar gnomon above the wall): `sin SH = cos φ · cos D`
 - **Substyle distance** (substyle line from the vertical noon line): `tan SD = sin D / tan φ`
 - **Longitude difference** of the substyle: `tan DL = tan D / sin φ`
+
+For a horizontal dial: SH = |φ|, SD = DL = 0, and the hour lines leave R at
+`tan θ = sin φ · tan H` from the noon line (tested).
 
 Rome, SW wall: **SH ≈ 31.8°, SD ≈ 38.2°, DL ≈ 56.3°**. The polar style
 (edge pointing at the celestial pole) makes hour lines valid on every day;
