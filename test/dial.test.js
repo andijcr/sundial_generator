@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sunVector, DEG, norm180 } from '../js/astro.js';
 import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
-import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, ROD_MAX, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
+import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
 import { gnomonSheetFor, esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
@@ -127,7 +127,7 @@ test('sheets render for many configurations without NaN', () => {
     { D: 90 }, { D: -90 }, { D: 180 }, { D: 180, lat: 5 }, { D: -135, lat: -10 }, { D: 0, lat: 5 },
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
-    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
+    { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 4.6 }, { fitGnomonX: true, paper: 'A4' }, { rodX: 10, plateW: 200, plateH: 150 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
     { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
@@ -1103,5 +1103,27 @@ test('gnomon sheet for a paper: rows wrap at the printable width, never more pag
       const one = gnomonSheet(d1, { s: s1, t: tt });
       assert.ok(one.W > 194 && packed.W <= 194, `portrait wraps: ${one.W} → ${packed.W}`);
     }
+  }
+});
+
+test('the multiplier only applies to the rod or a possible triangle; the layout counts pages with the real overlap', () => {
+  const t = makeT('en');
+  // a wall parallel to the Earth's axis has no triangular style: with the rod off, rodX changes nothing, so it is not fitted
+  for (const D of [90, -90]) {
+    const { s } = sanitize({ ...DEFAULTS, D, gRod: false, gPolar: true, paper: 'A4' });
+    const dial = buildDial(s, t);
+    assert.equal(dial.root, null, `D = ${D}: no root`);
+    assert.equal(rodXApplies(s, dial), false);
+    assert.equal(fitGnomonScale(s, t, 'A4', { orient: 'auto', margin: 8 }), null, `D = ${D}: not set to the maximum`);
+    assert.equal(rodXApplies({ ...s, gRod: true }, dial), true, 'the rod still takes it');
+  }
+  assert.equal(rodXApplies(sanitize({ ...DEFAULTS }).s, buildDial(sanitize({ ...DEFAULTS }).s, t)), true);
+  // pages are counted with the overlap the sheet will be printed with
+  const { s } = sanitize({ ...DEFAULTS, gBlade: true, rodX: 6 }), dial = buildDial(s, t), ctx = { s, t, place: 'x', dateStr: 'x' };
+  for (const overlap of [0, 30]) {
+    const opts = { orient: 'auto', margin: 8, overlap }, sh = gnomonSheetFor(dial, ctx, 'A4', opts);
+    const cands = [gnomonSheet(dial, ctx), ...[194, 281].map((maxW) => gnomonSheet(dial, { ...ctx, maxW }))];
+    const best = Math.min(...cands.map((c) => tileLayout(c.W, c.H, 'A4', overlap, opts).pages));
+    assert.equal(tileLayout(sh.W, sh.H, 'A4', overlap, opts).pages, best, `overlap ${overlap}: the fewest pages as printed`);
   }
 });

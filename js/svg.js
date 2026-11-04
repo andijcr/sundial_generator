@@ -294,6 +294,8 @@ const footLine = (dial, s, t) => `F: ${t('foot').replace(/^F: /, '')}${dial.root
 const TITLE_CHAR_W = 1.95; // estimated width of one character of the 3.6 px title-block text, mm
 
 const CHAR_W = 2.0; // estimated width of one character of a 3.5 px dimension label, mm
+// Widest measured text, mm per character (Chromium, Helvetica/Arial, EN and IT): label text set at 3.5 px, caption text at 3.2 px.
+const DT_W = 1.85, CAP_W = 1.62;
 
 /**
  * Margins of the face sheet around the plate, sized to what is drawn there (dimension lines, their labels,
@@ -473,18 +475,18 @@ export function gnomonSheet(dial, ctx) {
       const mx = ox + a * (1 + t0) / 2, my = oy - LP * (1 + t0) / 2;
       g += `<text class="dt" x="${f(mx - 3)}" y="${f(my - 3)}" transform="rotate(${f(-SH)} ${f(mx - 3)} ${f(my - 3)})">${esc(edgeLabel)}</text>`;
     }
-    const capChars = Math.max(28, Math.floor((a + 24) / 1.65));
+    const capChars = Math.max(28, Math.floor((a + 24) / DT_W));
     const capLines = [t('wallEdge'), ...(tabOn ? [] : [t('tabBelow')]), ...(edgeAlong ? [] : [edgeLabel])].flatMap((l) => wrapText(l, capChars));
     let capY = oy + tb + 20 + extra - 5;
     for (const l of capLines) { capY += 5; g += `<text class="dt" x="${f(ox)}" y="${f(capY)}" style="text-anchor:start">${esc(l)}</text>`; }
     H = Math.max(H, capY + 2); // the bottom of the captions under the tab
     // the caption may be wider than a small triangle: the piece is as wide as either
-    let capW = Math.max(...capLines.map((l) => l.length)) * 1.65; // 3.5 px caption text: about 1.5 mm a character, measured
+    let capW = Math.max(...capLines.map((l) => l.length)) * DT_W;
     if (kP > 1) {
-      const lines = wrapText(t('polarLongNote', kP), Math.min(60, Math.max(36, Math.floor((a + 24) / 1.6))));
+      const lines = wrapText(t('polarLongNote', kP), Math.min(60, Math.max(36, Math.floor((a + 24) / CAP_W))));
       g += textLines(ox, capY + 6, lines, 3.2);
       H = Math.max(H, capY + 6 + lines.length * 3.2 * 1.45);
-      capW = Math.max(capW, Math.max(...lines.map((l) => l.length)) * 1.6);
+      capW = Math.max(capW, Math.max(...lines.map((l) => l.length)) * CAP_W);
     }
     const rightP = Math.max(ox + a + 24, ox + capW);
     return { g, next: rightP + 12, right: rightP, bottom: H };
@@ -532,7 +534,7 @@ export function gnomonSheet(dial, ctx) {
     const CAP = 40; // caption width in characters (about 70 mm at 3.2 px): it sets the piece's width when L is small
     const bladeLines = [...caption, `${t('blade')}: ${t('bladeNote')}`].flatMap((l) => wrapText(l, CAP));
     g += textLines(bx - tb, fy + 22, bladeLines, 3.2);
-    const rightB = Math.max(bx + L + 6 + `N (${t('nodus')})`.length * 1.8, bx - tb + Math.max(...bladeLines.map((l) => l.length)) * 1.6 + 2); // 3.2 px text: about 1.5 mm a character
+    const rightB = Math.max(bx + L + 6 + `N (${t('nodus')})`.length * DT_W, bx - tb + Math.max(...bladeLines.map((l) => l.length)) * CAP_W + 2);
     return { g, next: rightB + 12, right: rightB, bottom: fy + 22 + bladeLines.length * 3.2 * 1.45 };
   });
   if (kRod === 1 && (s.gRod || (s.gPolar && !dial.root))) pieces.push((x, top) => {
@@ -545,7 +547,7 @@ export function gnomonSheet(dial, ctx) {
     g += `<text class="dt" x="${f(ox + 6)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
     const rodLines = wrapText(`${t('rod')}: ${t('rodNote')}`, 28);
     g += textLines(ox - 2, oy + L + EMB + 6, rodLines, 3.5);
-    const rightR = Math.max(ox + 30, ox - 2 + Math.max(...rodLines.map((l) => l.length)) * 1.9, ox + 6 + `${EMB} mm ${t('rodEmbed')}`.length * 1.8, ox + 6 + `N (${t('nodus')})`.length * 1.8);
+    const rightR = Math.max(ox + 30, ox - 2 + Math.max(...rodLines.map((l) => l.length)) * DT_W, ox + 6 + `${EMB} mm ${t('rodEmbed')}`.length * DT_W, ox + 6 + `N (${t('nodus')})`.length * DT_W);
     return { g, next: rightR + 12, right: rightR, bottom: oy + L + EMB + 6 + rodLines.length * 3.5 * 1.45 };
   });
   if (kRod > 1) pieces.push((x, top) => {
@@ -559,15 +561,15 @@ export function gnomonSheet(dial, ctx) {
     g += `<circle cx="${f(x0)}" cy="${f(my)}" r="1.2" class="nodus"/>`;
     g += `<text class="dt" x="${f(x0)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
     // the notch's label above the notch, one line higher when the notch is too close to the tip's label
-    const nLabel = `N (${t('nodus')})`, close = xn - x0 < (nLabel.length + t('rodNotch', mm(L)).length / 2) * 1.8 + 2;
+    const nLabel = `N (${t('nodus')})`, close = xn - x0 < (nLabel.length + t('rodNotch', mm(L)).length / 2) * DT_W + 2;
     g += `<text class="dt" x="${f(xn)}" y="${f(oy - (close ? 7.5 : 3))}">${esc(t('rodNotch', mm(L)))}</text>`;
     g += `<text class="dt" x="${f(xf + 3)}" y="${f(oy - 3)}" style="text-anchor:start">${EMB} mm ${esc(t('rodEmbed'))}</text>`;
     g += dimH(x0, xf, oy + WD + 9, oy + WD, `${kRod}× = ${mm(len)}`);
     g += dimH(xn, xf, oy + WD + 19, oy + WD, `L = ${mm(L)}`);
-    const cap = x <= M ? 90 : Math.round(Math.min(90, Math.max(45, (xe - x0 + 30) / 1.7))); // a row of its own: the full width
+    const cap = x <= M ? 90 : Math.round(Math.min(90, Math.max(45, (xe - x0 + 30) / 1.6))); // a row of its own: the full width
     const longLines = wrapText(`${t('rod')}: ${t('rodLongNote', kRod)}`, cap);
     g += textLines(x0, oy + WD + 28, longLines, 3.4);
-    const rightL = Math.max(xe + 4, xf + 3 + (`${EMB} mm ${t('rodEmbed')}`).length * 1.8, x0 + Math.max(...longLines.map((l) => l.length)) * 1.7);
+    const rightL = Math.max(xe + 4, xf + 3 + (`${EMB} mm ${t('rodEmbed')}`).length * DT_W, x0 + Math.max(...longLines.map((l) => l.length)) * 1.6);
     return { g, next: rightL + 12, right: rightL, bottom: oy + WD + 28 + longLines.length * 3.4 * 1.45, ownRow: !ctx.maxW };
   });
   // Lay the pieces out left to right. With ctx.maxW (the printable width of a page), a piece that would run past it starts a
@@ -576,16 +578,16 @@ export function gnomonSheet(dial, ctx) {
     let x = M, rowTop = top0;
     for (const piece of pieces) {
       let pc = piece(x, rowTop);
-      // a new row when the piece would pass the page (the sheet ends 8 mm right of the drawing)
+      // a new row when the piece would pass the page (the sheet ends 10 mm right of the drawing)
       // without a page width the long rod still takes a row of its own at the bottom, as it always did
-      if (x > M && (pc.ownRow || (ctx.maxW && pc.right + 8 > ctx.maxW))) { x = M; rowTop = H + 6; pc = piece(x, rowTop); }
+      if (x > M && (pc.ownRow || (ctx.maxW && pc.right + 10 > ctx.maxW))) { x = M; rowTop = H + 6; pc = piece(x, rowTop); }
       inner += pc.g;
       x = pc.next;
       right = Math.max(right, pc.right);
       H = Math.max(H, pc.bottom);
     }
   }
-  const W = Math.max(Math.ceil(right + 8), 180);
+  const W = Math.max(Math.ceil(right + 10), 180);
   // the summary sits just below the drawing, so the sheet is no taller than it needs to be (it should fit an A4 page)
   inner += textLines(M, H + 6, summaryLines(dial, ctx).slice(0, 3), 3.2);
   H = Math.ceil(H + 6 + 2 * 3.2 * 1.45 + 5);
@@ -600,9 +602,11 @@ export function gnomonSheet(dial, ctx) {
 export function gnomonSheetFor(dial, ctx, paper, opts = {}) {
   const one = gnomonSheet(dial, ctx);
   if (!PAPERS[paper]) return one;
+  const overlap = opts.overlap || 0; // the overlap the sheet is tiled with, so pages are counted as they will print
+  const pages = (sh) => tileLayout(sh.W, sh.H, paper, overlap, opts)?.pages ?? Infinity;
+  if (pages(one) === 1) return one; // one row already makes one page
   const orients = opts.orient === 'portrait' || opts.orient === 'landscape' ? [opts.orient] : ['portrait', 'landscape'];
   const cands = [one, ...orients.map((o) => tileLayout(1, 1, paper, 0, { ...opts, orient: o })).filter(Boolean).map((a) => gnomonSheet(dial, { ...ctx, maxW: a.aw }))];
-  const pages = (sh) => tileLayout(sh.W, sh.H, paper, 0, opts)?.pages ?? Infinity;
   return cands.reduce((b, c) => (pages(c) < pages(b) || (pages(c) === pages(b) && c.W * c.H < b.W * b.H) ? c : b));
 }
 

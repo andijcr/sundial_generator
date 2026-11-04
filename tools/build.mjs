@@ -42,7 +42,7 @@ for (const [name, v] of Object.entries(variants)) {
   const t = makeT(s.lang);
   const dial = buildDial(s, t);
   const ctx = { s, t, place: PRESETS[s.place]?.name || '', dateStr };
-  const sheets = [faceSheet(dial, ctx), gnomonSheetFor(dial, ctx, s.paper, { orient: s.orient, margin: s.printMargin }), infoSheet(dial, ctx), correctionSheet(dial, ctx)];
+  const sheets = [faceSheet(dial, ctx), gnomonSheetFor(dial, ctx, s.paper, { orient: s.orient, margin: s.printMargin, overlap: s.overlap }), infoSheet(dial, ctx), correctionSheet(dial, ctx)];
   for (const sh of sheets) {
     const file = `${name}-${sh.name}.svg`;
     writeFileSync(join(plans, file), svgDoc(sh));

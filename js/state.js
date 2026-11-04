@@ -200,15 +200,17 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
 /**
  * The largest gnomon multiplier rodX (in tenths, 1 to ROD_MAX) whose template is a single page of `paper`, for the dial as
  * it is: the dial (L, the foot, every mark) does not depend on rodX, so fitting the gnomon never changes the dial. Used after
- * fitPlateToPage when its option `fitGnomonX` is on. Returns null when even ×1 does not fit, or when neither the rod nor the
- * triangular style is drawn (rodX changes nothing then). Every tenth is tried, so a sheet that does not grow strictly with
- * the multiplier cannot stop the search early.
+ * fitPlateToPage when its option `fitGnomonX` is on. Returns null when even ×1 does not fit, or when rodX changes nothing
+ * (rodXApplies). The tenths are tried from the top down, every one until the first that fits, so a sheet that does not grow
+ * strictly with the multiplier cannot stop the search early.
  */
 export function fitGnomonScale(s, t, paper, opts = {}) {
-  if (!s.gRod && !s.gPolar) return null;
   const dial = buildDial(s, t);
+  if (!rodXApplies(s, dial)) return null;
   const fits = (k) => { const sh = gnomonSheetFor(dial, { s: { ...s, rodX: k }, t, place: '', dateStr: '' }, paper, opts); return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1; };
-  let best = null;
-  for (let k10 = 10; k10 <= ROD_MAX * 10; k10++) if (fits(k10 / 10)) best = k10 / 10;
-  return best;
+  for (let k10 = ROD_MAX * 10; k10 >= 10; k10--) if (fits(k10 / 10)) return k10 / 10; // from the top: the first that fits is the largest
+  return null;
 }
+
+/** Does the multiplier rodX change anything? Only for the rod, or for the triangular style where the wall allows one (a root). */
+export const rodXApplies = (s, dial) => !!(s.gRod || (s.gPolar && dial.root));
