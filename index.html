@@ -48,6 +48,8 @@
         <span class="pair"><input type="range" data-k="D" min="-180" max="180" step="0.5"><input type="number" data-k="D" min="-180" max="180" step="0.1"></span></label>
       <p class="hint"><span data-i18n="facesAz"></span>: <b id="facesAz"></b></p>
       <p class="hint" id="wallRange"></p>
+      <label><span data-i18n="horizon"></span><input type="text" data-k="horizon" maxlength="600" placeholder="100:25, 180:10, 250:30" spellcheck="false"></label>
+      <p class="hint" data-i18n="horizonHelp"></p>
       <details class="nested">
         <summary data-i18n="measure"></summary>
         <h4 data-i18n="measureShadowTitle"></h4>
@@ -57,13 +59,19 @@
           <label><span data-i18n="time"></span><input type="time" id="mTime"></label>
         </div>
         <label><span data-i18n="beta"></span><input type="number" id="mBeta" value="0" step="0.5"></label>
-        <p class="hint">D = <b id="mShadowOut">–</b> <button type="button" id="mShadowApply" data-i18n="apply"></button></p>
+        <p class="hint">D = <b id="mShadowOut">–</b> <button type="button" id="mShadowApply" data-i18n="apply"></button> <button type="button" id="mAdd" data-i18n="mAdd"></button></p>
+        <p class="hint" id="mShadowWarn" hidden></p>
+        <ul class="readings" id="mReadings"></ul>
+        <p class="hint" id="mMeanRow" hidden><span id="mMean"></span> <button type="button" id="mMeanApply" data-i18n="mUseMean"></button></p>
         <h4 data-i18n="measureCompassTitle"></h4>
         <p class="hint" data-i18n="measureCompassHelp"></p>
+        <p class="hint"><button type="button" id="mPhone" data-i18n="mPhone"></button> <span id="mPhoneOut" aria-live="polite"></span></p>
+        <p class="hint" data-i18n="mPhoneHelp"></p>
         <div class="row2">
           <label><span data-i18n="bearing"></span><input type="number" id="mBearing" value="225" step="0.5"></label>
           <label><span data-i18n="magdecl"></span><input type="number" id="mMagDecl" value="4" step="0.1"></label>
         </div>
+        <p class="hint"><a href="https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml" target="_blank" rel="noopener" data-i18n="magdeclLink"></a></p>
         <p class="hint">D = <b id="mCompassOut">–</b> <button type="button" id="mCompassApply" data-i18n="apply"></button></p>
       </details>
     </details>
@@ -110,6 +118,7 @@
         <label class="chk"><input type="checkbox" data-k="gBlade"> <span data-i18n="gBlade"></span></label>
         <label><span data-i18n="rodX"></span>
           <select data-k="rodX"><option value="1">×1</option><option value="2">×2</option><option value="3">×3</option><option value="5">×5</option></select></label>
+        <label><span data-i18n="bladeR"></span><input type="number" data-k="bladeR" min="0.3" max="3" step="0.1"></label>
       </fieldset>
     </details>
 
@@ -194,6 +203,12 @@
       <summary data-i18n="corrTitle"></summary>
       <p class="hint" id="corrNow"></p>
       <div id="corrGraph"></div>
+    </details>
+
+    <details class="corr" open>
+      <summary data-i18n="sunTitle"></summary>
+      <p class="hint" id="sunNow"></p>
+      <div id="sunGraph" class="sun-graph"><div id="sunTip" class="sun-tip" hidden></div></div>
     </details>
 
     <article class="learn" id="learn">

@@ -3,8 +3,8 @@
 //
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
-import { dayMs, REF_YEAR, fmtHM, lonCorrection, yearCorrections } from './astro.js';
-import { bladeHeight, absoluteDeclination } from './dial.js';
+import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections } from './astro.js';
+import { absoluteDeclination } from './dial.js';
 import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
@@ -48,24 +48,33 @@ const BW_STYLE = {
 export function dialCss(material, sw, bw = false) {
   const laser = material === 'laser';
   const black = laser || bw;
+  const line = laser ? LASER.score : '#000'; // laser: the dial's lines are scored (blue), its text engraved (black)
   let css = laser
-    ? `.plate{fill:none;stroke:#f00;stroke-width:0.1}`
+    ? `.plate{fill:none;stroke:${LASER.cut};stroke-width:0.1}`
     : bw ? `.plate{fill:none;stroke:#000;stroke-width:${f(sw * 2)}}`
       : `.plate{fill:#fbf6ea;stroke:#3b3b3b;stroke-width:${f(sw * 2)}}`;
   for (const [k, [c, w, d]] of Object.entries(LSTYLE)) {
     const [wm, dash] = bw && !laser ? BW_STYLE[k] : [w, d];
-    css += `.l-${k}{fill:none;stroke:${black ? '#000' : c};stroke-width:${f(laser ? 0.1 : sw * wm)};stroke-linecap:round;stroke-linejoin:round${dash && !laser ? `;stroke-dasharray:${dash.split(' ').map((x) => f(x * sw * 4)).join(' ')}` : ''}}`;
+    css += `.l-${k}{fill:none;stroke:${black ? line : c};stroke-width:${f(laser ? 0.1 : sw * wm)};stroke-linecap:round;stroke-linejoin:round${dash && !laser ? `;stroke-dasharray:${dash.split(' ').map((x) => f(x * sw * 4)).join(' ')}` : ''}}`;
   }
   css += `.t{font-family:${material === 'tile' ? 'Georgia,serif' : 'Helvetica,Arial,sans-serif'};text-anchor:middle;dominant-baseline:central}`;
   for (const [k, c] of Object.entries(TCOLOR)) css += `.t-${k}{fill:${black ? '#000' : c}}`;
   if (bw && !laser) css += '.t-dst{font-style:italic}'; // summer-time numbers lose their amber: set them in italics
-  css += `.mark{fill:none;stroke:${black ? '#000' : '#333'};stroke-width:${f(laser ? 0.1 : sw * 1.2)}}`;
+  css += `.mark{fill:none;stroke:${black ? line : '#333'};stroke-width:${f(laser ? 0.1 : sw * 1.2)}}`;
   css += `.info{fill:${black ? '#000' : '#555'};font-family:Helvetica,Arial,sans-serif}.motto{fill:${black ? '#000' : '#333'};font-family:Georgia,serif;font-style:italic;text-anchor:middle}`;
   return css;
 }
 
-/** CSS shared by the print sheets (dimensions, text, cut-outs, page frames). */
-function sheetCss(bw) {
+/** CSS shared by the print sheets (dimensions, text, cut-outs, page frames). laser: the colours are the laser layers. */
+function sheetCss(bw, laser = false) {
+  if (laser) {
+    const n = LASER.notes;
+    return `.dim{stroke:${n};stroke-width:0.25;fill:none}.dimx{stroke:${n};stroke-width:0.18;fill:none}
+.dt{font-family:Helvetica,Arial,sans-serif;font-size:3.5px;fill:${n};text-anchor:middle}
+.st{font-family:Helvetica,Arial,sans-serif;fill:${n}}.sb{font-weight:bold}
+.cut{fill:none;stroke:${LASER.cut};stroke-width:0.1}.fold{stroke:${LASER.score};stroke-width:0.1;fill:none}
+.reg{stroke:${n};stroke-width:0.2;fill:none}.tileb{stroke:${n};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${n}}`;
+  }
   const ink = bw ? '#000' : '#444', text = bw ? '#000' : '#222';
   return `.dim{stroke:${ink};stroke-width:0.25;fill:none}.dimx{stroke:${ink};stroke-width:0.18;fill:none}
 .dt{font-family:Helvetica,Arial,sans-serif;font-size:3.5px;fill:${text};text-anchor:middle}
@@ -74,7 +83,55 @@ function sheetCss(bw) {
 .reg{stroke:#000;stroke-width:0.2;fill:none}.tileb{stroke:${bw ? '#000' : '#999'};stroke-width:0.2;stroke-dasharray:2 2;fill:none}.nodus{fill:${bw ? '#000' : '#c0392b'}}`;
 }
 
-const defs = (bw) => `<defs><marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${bw ? '#000' : '#444'}"/></marker></defs>`;
+// The dimension arrowhead. A laser sheet has its own (#arrL, in the notes colour), so the sheets of one print job, which share
+// one document, each keep their colour.
+const arrow = (id, fill) => `<marker id="${id}" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="${fill}"/></marker>`;
+const defs = (bw, laser = false) => `<defs>${laser ? arrow('arrL', LASER.notes) : arrow('arr', bw ? '#000' : '#444')}</defs>`;
+const laserArrows = (markup) => markup.replaceAll('url(#arr)', 'url(#arrL)');
+
+/** Scope a sheet's CSS (plain rules, no at-rules) to the given selectors: the sheets of a print job share one document. */
+export function scopeCss(css, scopes) {
+  return css.split('}').map((r) => r.trim()).filter(Boolean).map((r) => {
+    const i = r.indexOf('{');
+    const sel = r.slice(0, i).split(',').map((x) => x.trim()).filter(Boolean);
+    return `${sel.flatMap((x) => scopes.map((sc) => `${sc} ${x}`)).join(',')}{${r.slice(i + 1)}}`;
+  }).join('');
+}
+
+// ---------------- Laser layers ----------------
+
+/** Laser colours, one per job: LightBurn and most laser software turn each colour into a layer. */
+export const LASER = { cut: '#ff0000', score: '#0000ff', engrave: '#000000', notes: '#00a000' };
+const LASER_LAYERS = [['cut', 'Cut'], ['score', 'Score (vector engrave)'], ['engrave', 'Engrave (text)'], ['notes', 'Notes (do not send to the laser)']];
+const INKSCAPE_NS = 'xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"';
+
+/** The elements of flat markup (self-closing tags and <text>…</text>), in order. */
+export const markupTokens = (markup) => markup.match(/<text\b[\s\S]*?<\/text>|<[a-zA-Z]+\b[^>]*\/>/g) || [];
+
+/** Laser layer of one element, from its class: outlines are cut, lines and folds scored, plate text engraved, the rest is notes. */
+export function laserLayerOf(tag) {
+  const cls = (tag.match(/class="([^"]*)"/) || [])[1] || '';
+  const has = (c) => cls.split(/\s+/).includes(c);
+  if (has('plate') || has('cut')) return 'cut';
+  if (/(^|\s)l-/.test(cls) || has('mark') || has('fold')) return 'score';
+  if (has('t') || has('info') || has('motto')) return 'engrave';
+  return 'notes';
+}
+
+/**
+ * Sort sheet markup into Inkscape layers (one per laser job, in the job's colour). parts: [[markup, transform], ...], each
+ * a flat run of elements in one coordinate system; a layer holds the matching elements of every part.
+ */
+export function laserLayers(parts) {
+  const out = {};
+  for (const [k] of LASER_LAYERS) out[k] = '';
+  for (const [markup, tr] of parts) {
+    const bucket = {};
+    for (const tok of markupTokens(markup)) { const k = laserLayerOf(tok); bucket[k] = (bucket[k] || '') + tok; }
+    for (const [k, v] of Object.entries(bucket)) out[k] += tr ? `<g transform="${tr}">${v}</g>` : v;
+  }
+  return LASER_LAYERS.filter(([k]) => out[k]).map(([k, label]) => `<g inkscape:groupmode="layer" inkscape:label="${label}">${out[k]}</g>`).join('\n');
+}
 
 function pathD(lines, P) {
   return lines.map((l) => 'M' + l.map(([x, y]) => f(P.fx + x) + ' ' + f(P.fy - y)).join('L')).join('');
@@ -121,7 +178,7 @@ export function frontViewSvg(dial, ctx) {
   }
   if (ctx.s.gBlade) {
     // seen from the front the blade is edge-on: a vertical bar from F up to height h
-    g += `<line x1="${f(P.fx)}" y1="${f(P.fy)}" x2="${f(P.fx)}" y2="${f(P.fy - bladeHeight(dial.L))}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
+    g += `<line x1="${f(P.fx)}" y1="${f(P.fy)}" x2="${f(P.fx)}" y2="${f(P.fy - dial.bladeH)}" stroke="#2b2b2b" stroke-width="${f(Math.max(sw * 5, 2))}" stroke-linecap="round"/>`;
   }
   // rod and blade both point at the viewer from F: one dot
   if (ctx.s.gRod || ctx.s.gBlade) g += `<circle cx="${f(P.fx)}" cy="${f(P.fy)}" r="${f(dial.fontSize * 0.35)}" fill="#2b2b2b"/>`;
@@ -151,7 +208,7 @@ export function shadowMarkup(dial, ctx, S, trail) {
       out += `<polygon points="${X(Rt)},${Y(Rt)} ${X(Fp)},${Y(Fp)} ${X(Ep)},${Y(Ep)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gBlade) {
-      const A = [0, bladeHeight(dial.L)];
+      const A = [0, dial.bladeH];
       out += `<polygon points="${X(A)},${Y(A)} ${X([0, 0])},${Y([0, 0])} ${X(Sc)},${Y(Sc)}" fill="rgba(20,20,30,0.38)"/>`;
     }
     if (ctx.s.gRod) {
@@ -176,8 +233,8 @@ export function trailMarkup(dial, pts) {
 
 export function svgDoc(sheet) {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${f(sheet.W)}mm" height="${f(sheet.H)}mm" viewBox="0 0 ${f(sheet.W)} ${f(sheet.H)}">
-${defs(sheet.bw)}<style>${sheet.css}${sheetCss(sheet.bw)}</style>
+<svg xmlns="http://www.w3.org/2000/svg" ${INKSCAPE_NS} width="${f(sheet.W)}mm" height="${f(sheet.H)}mm" viewBox="0 0 ${f(sheet.W)} ${f(sheet.H)}">
+${defs(sheet.bw, sheet.laser)}<style>${sheet.css}${sheetCss(sheet.bw, sheet.laser)}</style>
 <rect x="0" y="0" width="${f(sheet.W)}" height="${f(sheet.H)}" fill="#fff"/>
 ${sheet.inner}
 </svg>`;
@@ -190,8 +247,9 @@ function dimH(x1, x2, y, yRef, text) {
       ? `<text class="dt" x="${f((x1 + x2) / 2)}" y="${f(y - 1.2)}">${esc(text)}</text>`
       : `<text class="dt" x="${f(Math.max(x1, x2) + 2)}" y="${f(y + 1.2)}" style="text-anchor:start">${esc(text)}</text>`);
 }
-function dimV(y1, y2, x, xRef, text) {
+function dimV(y1, y2, x, xRef, text) { // text null: the line only (the value goes in a caption)
   const cx = x, cy = (y1 + y2) / 2;
+  if (text == null) return `<path class="dimx" d="M${f(xRef)} ${f(y1)}H${f(x + Math.sign(x - xRef) * 2)}M${f(xRef)} ${f(y2)}H${f(x + Math.sign(x - xRef) * 2)}"/><path class="dim" d="M${f(x)} ${f(y1)}V${f(y2)}" marker-start="url(#arr)" marker-end="url(#arr)"/>`;
   return `<path class="dimx" d="M${f(xRef)} ${f(y1)}H${f(x + Math.sign(x - xRef) * 2)}M${f(xRef)} ${f(y2)}H${f(x + Math.sign(x - xRef) * 2)}"/>` +
     `<path class="dim" d="M${f(x)} ${f(y1)}V${f(y2)}" marker-start="url(#arr)" marker-end="url(#arr)"/>` +
     (Math.abs(y2 - y1) > 28
@@ -231,6 +289,10 @@ function summaryLines(dial, ctx) {
   ];
 }
 
+/** The face sheet's line about F and R (title block). */
+const footLine = (dial, s, t) => `F: ${t('foot').replace(/^F: /, '')}${dial.root && s.gPolar ? ` · R: ${t('root').replace(/^R: /, '')} (${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)}) mm` : ''}`;
+const TITLE_CHAR_W = 1.95; // estimated width of one character of the 3.6 px title-block text, mm
+
 const CHAR_W = 2.0; // estimated width of one character of a 3.5 px dimension label, mm
 
 /**
@@ -250,13 +312,19 @@ function faceMargins(dial, s) {
     top = Math.max(top, 6 - R[1]);
   }
   const brief = !!s.faceBrief; // short caption: two lines, no scale bar (the plate's own dimensions are the scale)
-  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: brief ? 50 : 74 };
-  m.R = Math.max(m.R, (brief ? 130 : 200) - P.w - m.L); // the title block is about 170 mm wide, the short caption 120
+  // the title block is up to about 185 mm wide; the scale bar sits beside it when the plate is wide enough, else below it
+  // the full title block's width, estimated from its longest line (the place name, unknown here, gets 20 characters)
+  const t = makeT(s.lang || 'en');
+  const textW = brief ? 120 : TITLE_CHAR_W * Math.max(...summaryLines(dial, { s, t, place: '' }).map((l, i) => l.length + (i ? 0 : 20)), footLine(dial, s, t).length);
+  const barBelow = !brief && textW + 8 > P.w - 100; // the bar's left end is 100 mm left of the plate's right edge
+  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: (brief ? 50 : 74) + (barBelow ? 22 : 0) + (s.material === 'laser' ? 16 : 0) }; // a laser sheet has three more lines: what its colours mean
+  m.R = Math.max(m.R, Math.ceil(textW + 10 - P.w), barBelow ? 110 - P.w : 0); // room for the title block, and for the bar under it
+  m.barBelow = barBelow;
   return m;
 }
 
-/** Size of the face sheet in mm, without rendering it. s: the settings (is the triangular style drawn?). */
-export function faceSheetSize(dial, s = { gPolar: true }) {
+/** Size of the face sheet in mm, without rendering it. s: the settings (what is drawn, the language of the title block). */
+export function faceSheetSize(dial, s) {
   const m = faceMargins(dial, s);
   return { W: dial.plate.w + m.L + m.R, H: dial.plate.h + m.T + m.B };
 }
@@ -265,7 +333,7 @@ export function faceSheet(dial, ctx) {
   const { s, t } = ctx;
   const P = dial.plate;
   const { sw } = sizesFor(s.material, P);
-  const { L: ML, T: MT, R: MR } = faceMargins(dial, s);
+  const { L: ML, T: MT, R: MR, barBelow } = faceMargins(dial, s);
   const { W, H } = faceSheetSize(dial, s);
   let g = dialMarkup(dial, ctx);
   if (s.material !== 'laser') {
@@ -284,30 +352,33 @@ export function faceSheet(dial, ctx) {
     g += dimH(0, rx, P.h + 22, P.h, `R ${mm(rx)}`);
     g += dimV(0, ry, P.w + 24, P.w, `R ${mm(ry)}`);
   }
-  let inner = `<g transform="translate(${ML},${MT})">${g}</g>`;
+  const laser = s.material === 'laser';
+  // a laser file has one layer per job (cut, score, engrave, notes); everything else is one drawing
+  const done = (notes) => ({ W, H, inner: laser ? laserArrows(laserLayers([[g, `translate(${ML},${MT})`], [notes]])) : `<g transform="translate(${ML},${MT})">${g}</g>${notes}`, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw', laser });
   // title block
   const ty = MT + P.h + 36;
   if (s.faceBrief) {
-    inner += textLines(ML, ty - 2, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
-      `${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)}`], 3.6);
-    return { W, H, inner, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw' };
+    return done(textLines(ML, ty - 2, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
+      `${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)}`, ...(laser ? wrapText(t('laserNote'), 60) : [])], 3.6));
   }
-  inner += textLines(ML, ty, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true }, ...summaryLines(dial, ctx),
-    `F: ${t('foot').replace(/^F: /, '')}${dial.root && s.gPolar ? ` · R: ${t('root').replace(/^R: /, '')} (${dial.root[0].toFixed(1)}, ${dial.root[1].toFixed(1)}) mm` : ''}`,
+  let inner = textLines(ML, ty, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true }, ...summaryLines(dial, ctx),
+    footLine(dial, s, t),
     `${t('generated')}: ${ctx.dateStr || ''}`], 3.6);
   // 100 mm scale bar
-  const sx = W - MR - 100, sy = H - 14;
+  const LN = laser ? 16 : 0; // a laser sheet keeps a strip at the bottom for the key to its colours
+  const sx = barBelow ? ML : W - MR - 100, sy = H - 14 - LN;
   let bar = `<path class="dim" d="M${sx} ${sy}H${sx + 100}"/>`;
   for (let i = 0; i <= 10; i++) bar += `<path class="dim" d="M${sx + i * 10} ${sy}V${sy - (i % 5 === 0 ? 4 : 2)}"/>`;
   bar += `<text class="dt" x="${sx}" y="${sy - 5.5}">0</text><text class="dt" x="${sx + 50}" y="${sy - 5.5}">50</text><text class="dt" x="${sx + 100}" y="${sy - 5.5}">100 mm</text>`;
   bar += `<text class="dt" x="${sx + 50}" y="${sy + 5}">${esc(t('scale'))}</text>`;
   inner += bar;
-  return { W, H, inner, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw' };
+  if (laser) inner += textLines(ML, H - LN + 4, wrapText(t('laserNote'), Math.max(50, Math.floor((W - ML - 8) / 1.75))), 3.2);
+  return done(inner);
 }
 
 export function gnomonSheet(dial, ctx) {
   const { s, t } = ctx;
-  const L = dial.L, M = 14, TAB = 15;
+  const L = dial.L, M = 14, TAB = 15, laser = s.material === 'laser';
   let inner = '', x = M, H = 0;
   let right = M + 150; // right edge of the drawing (estimated), so the sheet is no wider than needed; 150 mm for the summary lines
   const top = M + 12;
@@ -326,8 +397,10 @@ export function gnomonSheet(dial, ctx) {
     const Nx = ox + a1, Ny = oy - L; // the true nodus, on the hypotenuse
     const P = (px, py) => `${f(px)},${f(py)}`;
     const notch = kP > 1 ? ` ${P(Nx - 3 * d[0], Ny - 3 * d[1])} ${P(Nx + ND * nIn[0], Ny + ND * nIn[1])} ${P(Nx + 3 * d[0], Ny + 3 * d[1])}` : '';
-    let g = `<polygon class="cut" points="${P(ox, oy)}${notch} ${P(ox + a, oy - LP)} ${P(ox + a, oy)}"/>`;
-    g += `<polygon class="cut" points="${f(ox)},${f(oy)} ${f(ox + a)},${f(oy)} ${f(ox + a - tb)},${f(oy + tb)} ${f(ox + tb)},${f(oy + tb)}"/>`;
+    // a laser cuts the outline of triangle and tab in one piece (the fold is only scored); a paper template shows the two parts
+    let g = laser ? `<polygon class="cut" points="${P(ox, oy)}${notch} ${P(ox + a, oy - LP)} ${P(ox + a, oy)} ${P(ox + a - tb, oy + tb)} ${P(ox + tb, oy + tb)}"/>`
+      : `<polygon class="cut" points="${P(ox, oy)}${notch} ${P(ox + a, oy - LP)} ${P(ox + a, oy)}"/>` +
+        `<polygon class="cut" points="${f(ox)},${f(oy)} ${f(ox + a)},${f(oy)} ${f(ox + a - tb)},${f(oy + tb)} ${f(ox + tb)},${f(oy + tb)}"/>`;
     g += `<path class="fold" d="M${f(ox)} ${f(oy)}H${f(ox + a)}"/>`;
     const r = Math.min(a, LP, 60) * 0.35;
     g += `<path class="dim" d="M${f(ox + r)} ${f(oy)}A${f(r)} ${f(r)} 0 0 0 ${f(ox + r * Math.cos(SH * Math.PI / 180))} ${f(oy - r * Math.sin(SH * Math.PI / 180))}"/>`;
@@ -370,11 +443,13 @@ export function gnomonSheet(dial, ctx) {
   if (s.gBlade) {
     // flat fin in the vertical plane: wall edge on the left (F at its foot), bottom edge out to the nodus N,
     // sloping edge back up to the wall at height h. A fold tab runs along the wall edge.
-    const h = bladeHeight(L), tb = Math.min(TAB, L / 4);
+    const h = dial.bladeH, tb = Math.min(TAB, L / 4, h / 3); // a low blade gets a narrower tab (its slanted ends must not cross)
     const bx = x + TAB + 10, ay = top + 10, fy = ay + h;
+    const hShort = h <= 28; // a short height dimension would put its label to the left of the line, off the sheet: it goes in the caption
     const tip = Math.atan2(h, L) * 180 / Math.PI, th = tip * Math.PI / 180;
-    let g = `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx + L)},${f(fy)}"/>`;
-    g += `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx - tb)},${f(fy - tb)} ${f(bx - tb)},${f(ay + tb)}"/>`;
+    let g = laser ? `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx - tb)},${f(ay + tb)} ${f(bx - tb)},${f(fy - tb)} ${f(bx)},${f(fy)} ${f(bx + L)},${f(fy)}"/>`
+      : `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx + L)},${f(fy)}"/>` +
+        `<polygon class="cut" points="${f(bx)},${f(ay)} ${f(bx)},${f(fy)} ${f(bx - tb)},${f(fy - tb)} ${f(bx - tb)},${f(ay + tb)}"/>`;
     g += `<path class="fold" d="M${f(bx)} ${f(ay)}V${f(fy)}"/>`;
     // What fits on the drawing stays on it; the rest goes to the caption (decided once, here).
     const roomy = L >= 45;
@@ -385,7 +460,7 @@ export function gnomonSheet(dial, ctx) {
       g += `<text class="dt" x="${f(bx + L - r - 3)}" y="${f(fy - 2)}" style="text-anchor:end">${tip.toFixed(1)}°</text>`;
     }
     g += dimH(bx, bx + L, fy + 9, fy, `L = ${mm(L)}`);
-    g += dimV(ay, fy, bx - tb - 10, bx - tb - 1, `h = ${mm(h)}`);
+    g += dimV(ay, fy, bx - tb - 10, bx - tb - 1, hShort ? null : `h = ${mm(h)}`);
     g += `<circle cx="${f(bx + L)}" cy="${f(fy)}" r="1" class="nodus"/>`;
     g += `<text class="dt" x="${f(bx + L + 3)}" y="${f(fy + 1)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
     if (roomy) {
@@ -398,6 +473,7 @@ export function gnomonSheet(dial, ctx) {
     if (tabFits) g += `<text class="dt" x="${f(bx - tb / 2)}" y="${f((ay + fy) / 2)}" transform="rotate(-90 ${f(bx - tb / 2)} ${f((ay + fy) / 2)})">${esc(t('tab'))}</text>`;
     inner += g;
     const caption = [t('bladeWallEdge')];
+    if (hShort) caption.push(`h = ${mm(h)}`);
     if (!roomy) caption.push(`${t('bladeTop')}: ↑ · ${tip.toFixed(1)}° · ${t('bladeBrace')} ${mm(Math.hypot(L, h))}`);
     if (!tabFits) caption.push(t('bladeTabAt'));
     const bladeLines = [...caption, ...wrapText(`${t('blade')}: ${t('bladeNote')}`, 52)];
@@ -444,7 +520,8 @@ export function gnomonSheet(dial, ctx) {
   // the summary sits just below the drawing, so the sheet is no taller than it needs to be (it should fit an A4 page)
   inner += textLines(M, H + 6, summaryLines(dial, ctx).slice(0, 3), 3.2);
   H = Math.ceil(H + 6 + 2 * 3.2 * 1.45 + 5);
-  return { W, H, inner, css: '', name: 'gnomon', bw: s.ink === 'bw' };
+  if (laser) inner = laserArrows(laserLayers([[inner]]));
+  return { W, H, inner, css: '', name: 'gnomon', bw: s.ink === 'bw', laser };
 }
 
 export const fmtMin = (m) => {
@@ -486,7 +563,7 @@ export function infoSheet(dial, ctx) {
   const corr = yearCorrections(s.lon, s.tz, s.dst); // the same data as the correction chart
   for (let mo = 0; mo < 12; mo++) {
     for (const day of [1, 15]) {
-      const i = Math.round((Date.UTC(REF_YEAR, mo, day) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+      const i = dayOfYear(mo, day);
       const d = corr[i];
       const row = [`${day} ${months[mo]}`, fmtMin(d.eot), fmtMin(d.solar), fmtMin(d.zone), d.dst ? '+60 m' : ''];
       inner += row.map((v, k) => `<text class="st" x="${cols[k]}" y="${f(y)}" font-size="3.2">${esc(v)}</text>`).join('');
@@ -550,7 +627,7 @@ export function correctionGraph(data, { x = 0, y = 0, w = 250, h = 100, t }) {
     g += `<path class="${v === 0 ? 'cg-axis' : 'cg-grid'}" d="M${f(px)} ${f(Y(v))}H${f(px + pw)}"/>`;
     g += `<text class="cg-t" x="${f(px - 1.5)}" y="${f(Y(v) + 1.1)}" style="text-anchor:end">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}</text>`;
   }
-  const first = (m) => Math.round((Date.UTC(REF_YEAR, m, 1) - Date.UTC(REF_YEAR, 0, 1)) / 86400000);
+  const first = (m) => dayOfYear(m, 1);
   for (let m = 0; m < 12; m++) {
     const a = first(m), b = m < 11 ? first(m + 1) : n;
     if (m > 0) g += `<path class="cg-grid" d="M${f(px + (a / n) * pw)} ${f(py)}V${f(py + ph)}"/>`;
@@ -607,6 +684,94 @@ export function correctionSheet(dial, ctx) {
   const H = Math.ceil(gy + gh + 8 + notes.length * 3.4 * 1.45 + 4);
   const bw = s.ink === 'bw';
   return { W, H, inner, css: graphCss(bw), name: 'correction', bw }; // the chart's own CSS: no other sheet needs it
+}
+
+// ---------------- When the sun reaches the wall ----------------
+
+/** CSS of the sun chart on the page: theme colours from style.css (--sun-*), so light and dark each get their own steps. */
+export function sunChartCss() {
+  return `.sc-t{font-family:Helvetica,Arial,sans-serif;font-size:3.2px;fill:var(--ink)}.sc-axis{stroke:var(--muted);stroke-width:0.3;fill:none}` +
+    `.sc-grid{stroke:var(--line);stroke-width:0.15;fill:none}.sc-4{fill:var(--sun-lit)}.sc-3{fill:var(--sun-graze)}.sc-1{fill:var(--sun-behind)}` +
+    `.sc-2{fill:var(--sun-hidden)}.sc-hatch{stroke:var(--sun-hatch);stroke-width:0.35}.sc-dst{fill:var(--muted)}.sc-now{stroke:var(--accent);stroke-width:0.45;fill:none}`;
+}
+
+/**
+ * Chart of when the sun reaches the wall: date across (one column per grid column), standard clock time down, each cell
+ * coloured by its SUN state (night left blank; the hidden state also hatched, so it does not rely on colour). Only the
+ * hours in which the sun is ever up are drawn. dst: per-day summer-time flags (yearCorrections), drawn as a strip on top.
+ * Returns { markup, X(days), Y(minutes), box, t0, t1 }.
+ */
+export function sunChart(grid, { x = 0, y = 0, w = 262, h = 120, t, dst = [], grazing = 0 }) {
+  const { cols, n, stepMin, stepDays } = grid, months = t('monthsShort');
+  // legend: a swatch and a label for each state that occurs (and the summer-time strip), wrapped into rows
+  const seen = new Set(cols.flatMap((c) => [...new Set(c.codes)]));
+  const runs = [];
+  dst.forEach((d, i) => { if (d.dst) { const r = runs[runs.length - 1]; if (r && r[1] === i - 1) r[1] = i; else runs.push([i, i]); } });
+  const items = [[4, t('sunLit')], [3, t('sunGraze', grazing)], [1, t('sunBehind')], [2, t('sunHidden')]].filter(([v]) => seen.has(v));
+  if (runs.length) items.push(['dst', t('sunDst')]);
+  const legend = [];
+  let lx = x + 12, row = 0;
+  for (const [v, label] of items) {
+    const iw = 6.5 + label.length * 1.6 + 4; // swatch, label (estimated at 1.6 mm a character), gap
+    if (lx + iw > x + w && lx > x + 12) { lx = x + 12; row++; }
+    legend.push([v, label, lx, y + row * 4.8]);
+    lx += iw;
+  }
+  const px = x + 12, py = y + 12 + row * 4.8, pw = w - 12 - 3, ph = h - (py - y) - 7;
+  let k0 = n, k1 = 0;
+  for (const c of cols) for (let k = 0; k < n; k++) if (c.codes[k]) { k0 = Math.min(k0, k); k1 = Math.max(k1, k + 1); }
+  if (k1 <= k0) { k0 = 0; k1 = n; }
+  const t0 = Math.floor(k0 * stepMin / 60) * 60, t1 = Math.ceil(k1 * stepMin / 60) * 60; // whole hours, minutes
+  const Xt = (days) => px + (days / 365) * pw, Y = (min) => py + ((min - t0) / (t1 - t0)) * ph;
+  let g = '<defs><pattern id="sunHatch" width="1.6" height="1.6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path class="sc-hatch" d="M0 0V1.6"/></pattern></defs>';
+  // the cells, merged into runs down each column
+  g += '<g shape-rendering="crispEdges">'; // no hairline seams between the columns
+  for (const c of cols) {
+    const xa = Xt(c.i), xb = Xt(Math.min(365, c.i + stepDays));
+    for (let k = 0; k < n;) {
+      const v = c.codes[k];
+      let e = k + 1;
+      while (e < n && c.codes[e] === v) e++;
+      if (v) {
+        const r = `x="${f(xa)}" y="${f(Y(k * stepMin))}" width="${f(xb - xa + 0.05)}" height="${f(Y(e * stepMin) - Y(k * stepMin))}"`;
+        g += `<rect class="sc-${v}" ${r}/>`;
+        if (v === 2) g += `<rect fill="url(#sunHatch)" ${r}/>`;
+      }
+      k = e;
+    }
+  }
+  g += '</g>';
+  // hours down the left (every 2 h), months along the bottom
+  for (let m = t0; m <= t1; m += 60) {
+    if ((m / 60) % 2) continue;
+    g += `<path class="sc-grid" d="M${f(px)} ${f(Y(m))}H${f(px + pw)}"/><text class="sc-t" x="${f(px - 1.5)}" y="${f(Y(m) + 1.1)}" style="text-anchor:end">${fmtHM(m)}</text>`;
+  }
+  const first = (mo) => dayOfYear(mo, 1);
+  for (let mo = 0; mo < 12; mo++) {
+    const a = first(mo), b = mo < 11 ? first(mo + 1) : 365;
+    if (mo) g += `<path class="sc-grid" d="M${f(Xt(a))} ${f(py)}V${f(py + ph)}"/>`;
+    g += `<text class="sc-t" x="${f(Xt((a + b) / 2))}" y="${f(py + ph + 4.5)}" style="text-anchor:middle">${esc(months[mo])}</text>`;
+  }
+  g += `<path class="sc-axis" d="M${f(px)} ${f(py)}V${f(py + ph)}H${f(px + pw)}"/>`;
+  // summer time: a thin strip above the plot
+  for (const [a, b] of runs) g += `<rect class="sc-dst" x="${f(Xt(a))}" y="${f(py - 2.2)}" width="${f(Xt(b + 1) - Xt(a))}" height="1.2"/>`;
+  for (const [v, label, lx, ly] of legend) {
+    g += v === 'dst' ? `<rect class="sc-dst" x="${f(lx)}" y="${f(ly + 2.2)}" width="5" height="1.2"/>`
+      : `<rect class="sc-${v}" x="${f(lx)}" y="${f(ly + 1)}" width="5" height="3.2"/>${v === 2 ? `<rect fill="url(#sunHatch)" x="${f(lx)}" y="${f(ly + 1)}" width="5" height="3.2"/>` : ''}`;
+    g += `<text class="sc-t" x="${f(lx + 6.5)}" y="${f(ly + 3.7)}">${esc(label)}</text>`;
+  }
+  return { markup: `<g>${g}</g>`, X: Xt, Y, box: { px, py, pw, ph }, t0, t1 };
+}
+
+/**
+ * The simulated moment on the sun chart: days since the start of the year, standard-time minutes after midnight. A time
+ * outside the plotted hours (night) gets only the date line, not a point on the chart's edge.
+ */
+export function sunChartMarker(chart, days, min) {
+  const { px, py, pw, ph } = chart.box, cx = chart.X(Math.min(365, Math.max(0, days)));
+  let out = `<path class="sc-now" d="M${f(cx)} ${f(py)}V${f(py + ph)}"/>`;
+  if (min >= chart.t0 && min <= chart.t1) { const cy = chart.Y(min); out += `<path class="sc-now" d="M${f(px)} ${f(cy)}H${f(px + pw)}"/><circle class="sc-now" cx="${f(cx)}" cy="${f(cy)}" r="1.4"/>`; }
+  return out;
 }
 
 // ---------------- Tiling ----------------
@@ -699,10 +864,10 @@ function planTiles(sheet, paper, overlap, label, opts) {
 <g clip-path="url(#${id})">${shared ? `<use href="#${contentId}"/>` : sheet.inner + regs}</g>
 <rect class="tileb" x="${f(x0)}" y="${f(y0)}" width="${f(tw)}" height="${f(th)}"/>
 <text class="dt" x="${f(vx + pm)}" y="${f(vy + pm + 4.5)}" style="text-anchor:start">${esc(note)}</text>`;
-    const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}mm" height="${ph}mm" viewBox="${f(vx)} ${f(vy)} ${pw} ${ph}">`;
+    const head = `<svg xmlns="http://www.w3.org/2000/svg" ${INKSCAPE_NS} width="${pw}mm" height="${ph}mm" viewBox="${f(vx)} ${f(vy)} ${pw} ${ph}">`;
     const svg = shared ? `${head}${body}</svg>`
-      : `<?xml version="1.0" encoding="UTF-8"?>\n${head}\n${defs(sheet.bw)}<style>${sheet.css}${sheetCss(sheet.bw)}</style>${body}</svg>`;
-    return { name: tileName(sheet.name, i, j), svg, pw, ph, page: n, pages, orient };
+      : `<?xml version="1.0" encoding="UTF-8"?>\n${head}\n${defs(sheet.bw, sheet.laser)}<style>${sheet.css}${sheetCss(sheet.bw, sheet.laser)}</style>${body}</svg>`;
+    return { name: tileName(sheet.name, i, j), svg, pw, ph, page: n, pages, orient, sheet: sheet.name };
   };
   return { lay, sheet, content, page };
 }
@@ -741,10 +906,12 @@ export function printJobHtml(sheets, paper, overlap, opts, title) {
   const css = `@page{size:${pages[0].pw}mm ${pages[0].ph}mm;margin:0}` +
     sizes.map((z) => { const [pw, ph] = z.split('x'); return `@page p${z}{size:${pw}mm ${ph}mm;margin:0}`; }).join('') +
     'html,body{margin:0}.pg{break-after:page;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pg svg{display:block}';
-  const holder = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${defs(plans[0].sheet.bw)}` +
-    plans.map((p) => `<style>${p.sheet.css}${sheetCss(p.sheet.bw)}</style><defs>${p.content}</defs>`).join('') + '</svg>';
+  // each sheet's styles only reach its own content and pages (a laser gnomon and a paper info sheet style .cut differently)
+  const markers = [...new Set(plans.map((p) => defs(p.sheet.bw, p.sheet.laser)))].join('');
+  const holder = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${markers}` +
+    plans.map((p) => `<style>${scopeCss(p.sheet.css + sheetCss(p.sheet.bw, p.sheet.laser), [`#content-${p.sheet.name}`, `.pg-${p.sheet.name}`])}</style><defs>${p.content}</defs>`).join('') + '</svg>';
   return `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>${css}</style>${holder}` +
-    pages.map((p) => `<div class="pg" style="page:p${p.pw}x${p.ph};width:${p.pw}mm;height:${p.ph}mm">${p.svg}</div>`).join('') +
+    pages.map((p) => `<div class="pg pg-${p.sheet}" style="page:p${p.pw}x${p.ph};width:${p.pw}mm;height:${p.ph}mm">${p.svg}</div>`).join('') +
     '<script>onload=()=>print()</script>';
 }
 

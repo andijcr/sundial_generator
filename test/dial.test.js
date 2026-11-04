@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sunVector, DEG } from '../js/astro.js';
-import { wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
+import { sunVector, DEG, norm180 } from '../js/astro.js';
+import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
-import { printJobHtml, printJobPages, MAX_QUIET_PAGES } from '../js/svg.js';
+import { scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -128,7 +128,7 @@ test('sheets render for many configurations without NaN', () => {
     { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: 45 }, { lat: -33.87, lon: 151.2, tz: 10, dst: 'AU', D: -90 }, { lat: -60, D: 0 },
     { material: 'laser', hRoman: true, motto: 'Ultima <latet> & "test"' }, { material: 'tile', auto: false, L: 120, fx: 300, fy: 50 },
     { faceBrief: true }, { faceBrief: true, lang: 'it', gPolar: false, plateW: 100, plateH: 80 }, { rodX: 2 }, { rodX: 5, lang: 'it', gBlade: true }, { rodX: 3, gPolar: false, plateW: 200, plateH: 150 },
-    { gBlade: true }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
+    { horizon: '100:25, 180:12, 250:30' }, { horizon: '0:89', lang: 'it' }, { gBlade: true }, { gBlade: true, bladeR: 0.3, plateW: 100, plateH: 80 }, { gBlade: true, bladeR: 3, lang: 'it' }, { gPolar: false, gRod: false, gBlade: true }, { gPolar: false, gRod: false, gBlade: true, D: 90, plateW: 200, plateH: 150 },
   ];
   for (const c of configs) {
     const { s } = sanitize({ ...DEFAULTS, ...c });
@@ -166,7 +166,7 @@ test('tile layout matches the rendered tiles; face size matches the sheet', () =
   const t = makeT('en');
   const dial = buildDial(s, t);
   const sheet = faceSheet(dial, { s, t });
-  const size = faceSheetSize(dial);
+  const size = faceSheetSize(dial, s);
   assert.deepEqual([size.W, size.H], [sheet.W, sheet.H]);
   for (const paper of ['A4', 'A3', 'A2']) {
     const lay = tileLayout(size.W, size.H, paper, 10);
@@ -291,7 +291,7 @@ test('blade template: tab label only where it fits, otherwise it moves to the ca
   assert.ok(!tight.svg.includes(`>${tight.t('tab')}</text>`) && tight.svg.includes(tight.t('bladeTabAt')), 'L=50 IT: caption instead');
   const tiny = sheet('en', 20);
   assert.ok(tiny.svg.includes(tiny.t('bladeTabAt')));
-  assert.match(tiny.svg, /<text class="dt"[^>]*style="text-anchor:end">h = 20\.0 mm<\/text>/, 'short h dimension: label on the outer (left) side');
+  assert.ok(!/<text class="dt"[^>]*>h = 20\.0 mm<\/text>/.test(tiny.svg) && /<text class="st"[^>]*>h = 20\.0 mm<\/text>/.test(tiny.svg), 'short h dimension: the value goes in the caption, not off the sheet to the left');
 });
 
 test('blade stays clear of the "no triangular style" text', () => {
@@ -661,7 +661,7 @@ test('print job: one document, shared content, pages sized to their sheets; tile
   const n = printJobPages(sheets, 'A4', 10, { orient: 'auto', margin: 8 });
   assert.ok(n > 2 && n <= MAX_QUIET_PAGES);
   const html = printJobHtml(sheets, 'A4', 10, { orient: 'auto', margin: 8 }, 'T <x>');
-  assert.equal((html.match(/class="pg"/g) || []).length, n);
+  assert.equal((html.match(/class="pg pg-/g) || []).length, n);
   assert.ok(html.includes('&lt;x&gt;') && !html.includes('<x>'));
   assert.ok(html.includes('<use'), 'pages refer to shared content');
   assert.ok(!/NaN|undefined/.test(html));
@@ -798,4 +798,223 @@ test('short dial caption: smaller sheet, no scale bar, still inside the sheet', 
     assert.ok(svgDoc(faceSheet(full, { s, t: makeT(s.lang), place: 'T', dateStr: 'x' })).includes('100 mm</text>'), 'the full sheet keeps its scale bar');
   }
   assert.equal(sanitize({ faceBrief: '1' }).s.faceBrief, true);
+});
+
+test('blade height: bladeR × L everywhere (front view, shadow, template, auto-fit headroom), bounded, in the URL', () => {
+  for (const r of [0.3, 0.6, 1, 2, 3]) {
+    const { s, dial } = bladeCfg({ bladeR: r });
+    near(dial.bladeH, dial.L * r, 1e-9, `r = ${r}`);
+    const P = dial.plate;
+    // the front view's bar and the shadow triangle reach the blade top
+    const bar = frontViewSvg(dial, { s }).match(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/);
+    near(+bar[4], P.fy - dial.bladeH, 0.01, 'bar');
+    const S = shadowPoint(sunVector(10, 40, s.lat), dial.L, dial.frame);
+    assert.ok(shadowMarkup(dial, { s }, S).includes(`${Math.round(P.fx * 100) / 100},${Math.round((P.fy - dial.bladeH) * 100) / 100}`), 'shadow triangle');
+    // the template: height dimension, tip angle, and a fold tab whose slanted ends do not cross
+    const t = makeT('en'), sh = gnomonSheet(dial, { s, t, place: 'x', dateStr: 'x' }), svg = svgDoc(sh);
+    assert.ok(svg.includes(`h = ${dial.bladeH.toFixed(1)} mm`), `h for r = ${r}`);
+    assert.ok(svg.includes(`${(Math.atan2(dial.bladeH, dial.L) * 180 / Math.PI).toFixed(1)}°`) || dial.L < 45, 'tip angle');
+    const tab = [...svg.matchAll(/<polygon class="cut" points="([^"]+)"/g)].map((m) => m[1].split(' ').map((p) => p.split(',').map(Number)))[1];
+    assert.ok(tab[3][1] <= tab[2][1] + 1e-9, `tab ends do not cross for r = ${r}`);
+    assert.ok(!/NaN|undefined|Infinity/.test(svg));
+    // auto-fit keeps the blade top on the plate
+    assert.ok(P.fy - dial.bladeH >= P.margin - 1, `blade top inside the plate for r = ${r}`);
+  }
+  const r = (v) => sanitize({ ...DEFAULTS, bladeR: v }).s.bladeR;
+  assert.deepEqual([r(0.1), r(9), r(1.5)], [0.3, 3, 1.5]);
+  assert.equal(DEFAULTS.bladeR, 1, 'the 45° blade by default');
+  const back = sanitize(Object.fromEntries(new URLSearchParams(serializeState(sanitize({ ...DEFAULTS, gBlade: true, bladeR: 0.5 }).s)))).s;
+  assert.equal(back.bladeR, 0.5);
+});
+
+test('labels do not overlap, even with every option on, and summer-time numbers stay by their hour', () => {
+  const all = { hZone: true, hDstLabels: true, anaHours: true, anaZoneNoon: true, dZodiac: true, dMonths: true, xItalian: true, xBabylonian: true, xAzimuth: true, xAltitude: true };
+  for (const c of [{}, all, { ...all, lang: 'it', hRoman: true }, { ...all, plateW: 200, plateH: 150 }, { ...all, lat: -33.87, lon: 151.2, tz: 10, dst: 'AU' }, { ...all, D: -60, material: 'tile' }]) {
+    const { s } = sanitize({ ...DEFAULTS, ...c });
+    const dial = buildDial(s, makeT(s.lang)), fs = dial.fontSize;
+    const labels = dial.layers.flatMap((l) => l.labels);
+    const boxes = labels.map((lb) => labelBox(lb, fs));
+    let hits = 0;
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      if (a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3]) hits++;
+    }
+    assert.ok(hits <= labels.length * 0.02, `${hits} overlaps of ${labels.length} labels for ${JSON.stringify(c)}`);
+    assert.ok(labels.every((lb) => !('of' in lb)), 'no internal links left on the labels');
+  }
+  // a crowded spot: the second label moves out of the way, the first keeps its place; the companion follows its label
+  const clip = { x0: -100, x1: 100, y0: -100, y1: 100 };
+  const a = { x: 0, y: 0, text: '12', cls: 'hour' }, b = { x: 0.5, y: 0, text: '12', cls: 'zone' }, d = { x: 0.5, y: 6, text: '13', cls: 'dst', size: 0.75, of: b };
+  placeLabels([d, b, a], clip, 5);
+  assert.deepEqual([a.x, a.y], [0, 0], 'the higher-ranked label keeps its place');
+  const ba = labelBox(a, 5), bb = labelBox(b, 5);
+  assert.ok(!(ba[0] < bb[1] && bb[0] < ba[1] && ba[2] < bb[3] && bb[2] < ba[3]), 'b moved clear of a');
+  assert.ok(Math.hypot(b.x - 0.5, b.y) <= 0.45 * 5 * 8 + 1e-9, 'not far');
+  assert.ok(Math.hypot(d.x - b.x, d.y - b.y) < 12, 'the summer-time number stays next to its hour');
+});
+
+test('laser files: one Inkscape layer per job, in its colour; nothing lost; outlines cut in one piece', () => {
+  const layerBodies = (svg) => Object.fromEntries([...svg.matchAll(/<g inkscape:groupmode="layer" inkscape:label="([^"]+)">([\s\S]*?)<\/g>(?=\n<g inkscape|$|\n<\/svg>|<\/svg>)/g)].map((m) => [m[1], m[2]]));
+  for (const lang of ['en', 'it']) {
+    for (const c of [{}, { gBlade: true, rodX: 2, bladeR: 0.5 }, { plateW: 150, plateH: 120 }, { faceBrief: true }, { gPolar: false, gRod: false, gBlade: true }]) {
+      const { s } = sanitize({ ...DEFAULTS, ...c, lang, material: 'laser' });
+      const t = makeT(lang), dial = buildDial(s, t), ctx = { s, t, place: 'x', dateStr: 'x' };
+      for (const sh of [faceSheet(dial, ctx), gnomonSheet(dial, ctx)]) {
+        const svg = svgDoc(sh);
+        assert.ok(sh.laser && svg.includes('xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"'), 'Inkscape namespace');
+        assert.ok(!/NaN|undefined|Infinity/.test(svg), `${sh.name} ${JSON.stringify(c)}`);
+        const L = layerBodies(svg);
+        assert.ok(L.Cut && L['Notes (do not send to the laser)'], `${sh.name}: cut and notes layers`);
+        for (const tok of markupTokens(L.Cut)) assert.equal(laserLayerOf(tok), 'cut', tok);
+        // the job colours come from the CSS: red cut, blue score, black text, green notes; no other colour
+        const css = sh.css + svg.match(/<style>([\s\S]*?)<\/style>/)[1];
+        assert.match(css, new RegExp(`\\.(plate|cut)\\{fill:none;stroke:${LASER.cut}`));
+        if (sh.name === 'face') {
+          assert.ok(L['Score (vector engrave)'] && L['Engrave (text)'], 'dial lines scored, text engraved');
+          assert.match(css, new RegExp(`\\.l-hour\\{fill:none;stroke:${LASER.score}`));
+          assert.ok(svg.includes(t('laserNote').split(' ')[0]), 'the sheet says what the colours mean');
+        } else assert.match(css, new RegExp(`\\.fold\\{stroke:${LASER.score}`));
+        const colours = new Set([...(css + svg).matchAll(/(?:stroke|fill)[:=]"?(#[0-9a-fA-F]{3,6})/g)].map((m) => m[1].toLowerCase()));
+        for (const col of colours) assert.ok(Object.values(LASER).includes(col) || col === '#000' || col === '#fff', `${sh.name}: stray colour ${col}`);
+        // a single page of a tiled laser sheet is valid XML with the namespace too
+        assert.ok(tileSheets(sh, 'A4', 10, 'x')[0].svg.includes('xmlns:inkscape'), 'tile');
+      }
+      // the gnomon outlines: one cut polygon per piece (triangle with tab, blade with tab, rod)
+      const g = svgDoc(gnomonSheet(dial, ctx));
+      const pieces = (s.gPolar && dial.root ? 1 : 0) + (s.gBlade ? 1 : 0) + (s.gRod ? 1 : 0);
+      assert.equal((g.match(/class="cut"/g) || []).length, pieces, `one outline per piece ${JSON.stringify(c)}`);
+    }
+  }
+  // sorting into layers keeps every element, in order within its layer
+  const markup = '<rect class="plate" x="0"/><path class="l-hour" d="M0 0"/><text class="t t-hour" x="1">12</text><path class="dim" d="M1 1"/><circle class="nodus" r="1"/><path class="fold" d="M2 2"/><text class="st sb" x="2">T</text>';
+  const out = laserLayers([[markup, 'translate(5,5)']]);
+  assert.equal(markupTokens(out).sort().join(''), markupTokens(markup).sort().join(''), 'no element lost or duplicated');
+  assert.deepEqual(markupTokens(markup).map(laserLayerOf), ['cut', 'score', 'engrave', 'notes', 'notes', 'score', 'notes']);
+  // paper and tile sheets are unchanged: no layers
+  const { s } = sanitize({ ...DEFAULTS }), t = makeT('en'), dial = buildDial(s, t);
+  assert.ok(!svgDoc(faceSheet(dial, { s, t })).includes('inkscape:groupmode'));
+});
+
+test('face sheet: the title block and the scale bar never overlap; the bar goes below on narrow plates', () => {
+  for (const lang of ['en', 'it']) {
+    for (const plateW of [50, 120, 200, 300, 450, 1000]) {
+      const { s } = sanitize({ ...DEFAULTS, lang, plateW, plateH: 200, hZone: true, anaZoneNoon: true, anaHours: true });
+      const t = makeT(lang), dial = buildDial(s, t), sh = faceSheet(dial, { s, t, place: 'Roma', dateStr: '2026-01-01' });
+      const svg = svgDoc(sh);
+      const texts = [...svg.matchAll(/<text class="st[^"]*" x="([\d.]+)" y="([\d.]+)" font-size="([\d.]+)">([^<]*)<\/text>/g)].map((m) => ({ x: +m[1], y: +m[2], len: m[4].length }));
+      const bar = svg.match(/<path class="dim" d="M([\d.]+) ([\d.]+)H([\d.]+)"\/><path class="dim" d="M[\d.]+ [\d.]+V/);
+      const [bx, by] = [+bar[1], +bar[2]];
+      for (const tl of texts) {
+        const right = tl.x + tl.len * 1.95, beside = right < bx - 2, above = tl.y < by - 9;
+        assert.ok(beside || above, `${lang} ${plateW}: a title line runs into the bar`);
+        assert.ok(right <= sh.W + 1, `${lang} ${plateW}: a title line leaves the sheet`);
+      }
+      assert.ok(bx >= 0 && bx + 100 <= sh.W, `${lang} ${plateW}: the bar is on the sheet`);
+    }
+  }
+});
+
+test('horizon profile: parsed to numbers only, wrapped, clamped, sorted, deduplicated, bounded; survives the URL', () => {
+  // 450 wraps to 90 and a later 90 replaces it; −30 is 330; altitudes held to 0..89; non-pairs ignored
+  assert.deepEqual(parseHorizon('180:10, 90:20; 450:5, -30:3, x:1, 200:-4, 210:120, <b>:3, 90:22'), [[90, 22], [180, 10], [200, 0], [210, 89], [330, 3]]);
+  assert.deepEqual(parseHorizon(''), []);
+  assert.deepEqual(parseHorizon('359.96:5'), [[0, 5]], 'wraps to 0, not 360');
+  assert.equal(parseHorizon(Array.from({ length: 50 }, (_, i) => `${i * 7}:1`).join(',')).length, HORIZON_MAX);
+  const { s } = sanitize({ ...DEFAULTS, horizon: ' 250 : 30 ;100:25,"><script>,180:12' });
+  assert.equal(s.horizon, '100:25, 180:12, 250:30', 'canonical text, nothing else survives');
+  const back = sanitize(Object.fromEntries(new URLSearchParams(serializeState(s)))).s;
+  assert.equal(back.horizon, s.horizon);
+  assert.equal(sanitize({ ...DEFAULTS }).s.horizon, '', 'open horizon by default');
+});
+
+test('horizon profile: linear between points, around the circle; one point is the whole horizon', () => {
+  const hz = parseHorizon('90:10, 180:30, 300:0');
+  near(horizonAlt(hz, 135), 20, 1e-9);
+  near(horizonAlt(hz, 240), 15, 1e-9);
+  near(horizonAlt(hz, 30), 6, 1e-9, 'across north: 300 → 90 spans 150°, and 30 is 90° in: 0 + 10 × 90/150');
+  near(horizonAlt(hz, 390), horizonAlt(hz, 30), 1e-9);
+  assert.equal(horizonAlt(parseHorizon('200:12'), 17), 12);
+  assert.equal(horizonAlt([], 17), 0);
+});
+
+test('sun state: night, behind the wall, hidden, grazing, lit', () => {
+  const fr = wallFrame(0), lat = 41.9; // south wall
+  assert.equal(sunState(sunVector(0, 180, lat), fr), SUN.night);
+  assert.equal(sunState(sunVector(20, -100, lat), fr), SUN.behind, 'summer morning: sun in the north-east');
+  assert.equal(sunState(sunVector(0, 0, lat), fr), SUN.lit);
+  assert.equal(sunState(sunVector(0, 0, lat), fr, parseHorizon('180:60')), SUN.hidden, 'equinox noon sun is 48° up');
+  assert.equal(sunState(sunVector(0, 0, lat), fr, parseHorizon('180:40')), SUN.lit);
+  assert.equal(sunState(sunVector(0, 80, lat), fr, [], 12), SUN.graze, 'late afternoon: nearly in the wall plane');
+});
+
+test('sunlight grid: agrees with sunStats, centred on solar noon in clock time, and loses the hidden hours', () => {
+  const lat = 41.9028, lon = 12.4964, tz = 1;
+  for (const D of [0, 45, -60]) {
+    const g = sunlightGrid(lat, lon, tz, D);
+    near(g.avg, sunStats(lat, D).litPerDay, 0.15, `D = ${D}`);
+  }
+  // south wall: the lit span is centred on apparent noon, which the clock shows at 12:00 + lonCorrection − EoT
+  const g = sunlightGrid(lat, lon, tz, 0, [], 0, 1, 2);
+  for (const c of [g.cols[79], g.cols[171], g.cols[264]]) {
+    const lit = [...c.codes.keys()].filter((k) => c.codes[k] >= SUN.graze);
+    const mid = ((lit[0] + lit[lit.length - 1] + 1) / 2) * g.stepMin;
+    const eot = yearCorrections(lon, tz, 'none')[c.i].eot;
+    near(mid, 720 + lonCorrection(lon, tz) - eot, 2.5, `day ${c.i}`);
+  }
+  const hz = parseHorizon('100:25, 180:12, 250:30'), h = sunlightGrid(lat, lon, tz, 45, hz, 12);
+  assert.ok(h.avg < sunlightGrid(lat, lon, tz, 45, [], 12).avg - 1, 'obstacles take hours away');
+  assert.ok(h.cols.some((c) => c.codes.includes(SUN.hidden)) && h.cols.some((c) => c.codes.includes(SUN.graze)));
+  near(buildDial(sanitize({ ...DEFAULTS, horizon: '100:25, 180:12, 250:30' }).s, makeT('en')).stats.litPerDay, h.avg, 0.2, 'the dial statistics use the profile');
+  assert.ok(h.max.litH >= h.avg && h.min.litH <= h.avg);
+});
+
+test('sun chart: no broken numbers, legend inside the chart, hatched hidden cells, marker inside the plot', () => {
+  for (const lang of ['en', 'it']) {
+    for (const [lat, lon, tz, D, hz, dst] of [[41.9, 12.5, 1, 45, '100:25, 180:12, 250:30', 'EU'], [-33.87, 151.2, 10, 180, '', 'AU'], [5, 0, 0, 90, '0:10', 'none'], [60, 10, 1, -90, '', 'EU']]) {
+      const t = makeT(lang), grid = sunlightGrid(lat, lon, tz, D, parseHorizon(hz), 12);
+      const c = sunChart(grid, { w: 262, h: 120, t, dst: yearCorrections(lon, tz, dst), grazing: 12 });
+      assert.ok(!/NaN|undefined|Infinity/.test(c.markup), `${lang} ${lat} ${D}`);
+      assert.equal(/fill="url\(#sunHatch\)"/.test(c.markup), grid.cols.some((x) => x.codes.includes(SUN.hidden)), 'hatching exactly when something is hidden');
+      for (const m of c.markup.matchAll(/<text class="sc-t" x="([\d.]+)" y="([\d.]+)">([^<]*)<\/text>/g)) {
+        assert.ok(+m[1] + m[3].length * 1.6 <= 262 + 1, `legend "${m[3]}" leaves the chart (${lang})`);
+      }
+      assert.ok(c.t0 % 60 === 0 && c.t1 % 60 === 0 && c.t1 > c.t0);
+      const { px, py, pw, ph } = c.box;
+      assert.ok(!/<circle/.test(sunChartMarker(c, 100, c.t1 + 30)) && !/<circle/.test(sunChartMarker(c, 100, c.t0 - 30)), 'a time outside the plotted hours gets no point on the edge');
+      const mk = sunChartMarker(c, 400, (c.t0 + c.t1) / 2).match(/cx="([\d.]+)" cy="([\d.]+)"/);
+      assert.ok(+mk[1] <= px + pw + 1e-6 && +mk[2] <= py + ph + 1e-6 && +mk[2] >= py - 1e-6, 'marker inside the plot, date clamped');
+    }
+  }
+});
+
+test('measuring the wall: shadow reading, circular mean and spread, compass events', () => {
+  for (const D of [0, 45, -60, 135, 180]) for (const az of [100, 180, 250]) {
+    near(Math.abs(norm180(wallFromShadow(az, norm180(az - 180 - D)) - D)), 0, 1e-9, `D ${D} az ${az}`);
+  }
+  near(wallFromShadow(225, 0), 45, 1e-9, 'sun straight in front of a SW wall');
+  const a = circularMean([179, -179]);
+  near(Math.abs(a.mean), 180, 1e-9, 'across ±180, not 0'); near(a.spread, 1, 0.01);
+  const b = circularMean([10, 20, 30]);
+  near(b.mean, 20, 1e-9); near(b.spread, Math.sqrt(200 / 3), 0.15, 'small spreads match the ordinary standard deviation'); assert.equal(b.n, 3);
+  assert.equal(circularMean([]), null);
+  assert.equal(compassHeading({ webkitCompassHeading: 370 }), 10, 'iOS heading');
+  assert.equal(compassHeading({ absolute: true, alpha: 90 }), 270, 'absolute alpha turns the other way');
+  assert.equal(compassHeading({ absolute: false, alpha: 90 }), null, 'a relative alpha is no heading');
+  assert.equal(compassHeading(null), null);
+  assert.ok(BETA_POOR > 45 && BETA_POOR < 90);
+});
+
+test('print job of laser sheets: each sheet keeps its own colours and arrowheads; CSS scoped per sheet', () => {
+  assert.equal(scopeCss('.a,.b{fill:red}\n.c{x:1}', ['#s', '.p']), '#s .a,.p .a,#s .b,.p .b{fill:red}#s .c,.p .c{x:1}');
+  const { s } = sanitize({ ...DEFAULTS, material: 'laser' });
+  const t = makeT('en'), ctx = { s, t, place: 'T', dateStr: 'x' }, dial = buildDial(s, t);
+  const html = printJobHtml([[faceSheet(dial, ctx), 'f'], [gnomonSheet(dial, ctx), 'g'], [infoSheet(dial, ctx), 'i'], [correctionSheet(dial, ctx), 'c']], 'A4', 10, { orient: 'auto', margin: 8 }, 'T');
+  // the gnomon's laser cut rule and the info sheet's paper cut rule each reach only their own sheet
+  assert.match(html, new RegExp(`#content-gnomon \\.cut,\\.pg-gnomon \\.cut\\{fill:none;stroke:${LASER.cut}`));
+  assert.ok(!/(^|[}>])\.cut\{/.test(html), 'no unscoped rule left to leak between sheets');
+  assert.ok(html.includes('id="arr"') && html.includes('id="arrL"'), 'both arrowheads defined once each');
+  assert.equal((html.match(/id="arrL"/g) || []).length, 1);
+  const gn = html.match(/<g id="content-gnomon">[\s\S]*?<\/g><\/defs>/)[0], info = html.match(/<g id="content-info">[\s\S]*?<\/defs>/)[0];
+  assert.ok(gn.includes('url(#arrL)') && !gn.includes('url(#arr)'), 'laser sheets use the laser arrowhead');
+  assert.ok(!info.includes('url(#arrL)'), 'paper sheets keep theirs');
 });

@@ -1,8 +1,8 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
-import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, REF_YEAR } from './astro.js';
-import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit } from './dial.js';
-import { frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
+import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
+import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
+import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -81,6 +81,7 @@ function writeControls() {
   }
   for (const el of $$('.manual')) el.disabled = state.auto;
   $('[data-k="rodX"]').disabled = !state.gRod && !state.gPolar; // it lengthens the rod and the style edge
+  $('[data-k="bladeR"]').disabled = !state.gBlade; // only the blade has a height
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
   $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;
@@ -137,7 +138,58 @@ function update() {
   saveHash();
   refreshMeasure();
   renderCorrection();
+  renderSun();
   renderTime();
+}
+
+// ---------------- when the sun reaches the wall ----------------
+let sunView = null; // { grid, chart } of the chart on the page, for the marker and the hover readout
+let sunKey = ''; // the marker's current position (redrawn only when it moves)
+function renderSun() {
+  sunKey = '';
+  const D = absoluteDeclination(state.lat, state.D);
+  const grid = sunlightGrid(state.lat, state.lon, state.tz, D, dial.horizon, state.grazing);
+  const chart = sunChart(grid, { x: 0, y: 0, w: 262, h: 120, t, dst: yearCorrections(state.lon, state.tz, state.dst), grazing: state.grazing });
+  sunView = { grid, chart, D };
+  const tip = $('#sunTip');
+  $('#sunGraph').innerHTML = `<svg viewBox="0 0 262 120" role="img" aria-label="${esc(t('sunTitle'))}"><style>${sunChartCss()}</style>${chart.markup}<g id="sc-now"></g></svg>`;
+  $('#sunGraph').append(tip);
+  const day = (c) => { const d = yearTable()[c.i]; return `${d.dom} ${t('monthsShort')[d.m]}`; };
+  const open = dial.horizon.length ? t('sunSummaryHz', grid.avgOpen.toFixed(1)) : '';
+  $('#sunNow').textContent = t('sunSummary', grid.avg.toFixed(1), open, grid.max.litH.toFixed(1), day(grid.max), grid.min.litH.toFixed(1), day(grid.min));
+}
+function updateSunMarker() {
+  if (!sunView) return;
+  const c = civilFromUtc(time.ms, state.tz, 'none'); // the chart is in standard time: date and time without summer time (00:30 summer time is 23:30 the day before)
+  const days = Math.min(364.99, dayOfYear(c.mo, c.d) + 0.5), min = c.h * 60 + c.mi;
+  const key = `${days}|${min}`;
+  if (key === sunKey) return;
+  sunKey = key;
+  const g = $('#sc-now');
+  if (g) g.innerHTML = sunChartMarker(sunView.chart, days, min);
+}
+// hover: what the cell under the pointer means, and the sun's position then
+function bindSunHover() {
+  const box = $('#sunGraph'), tip = $('#sunTip');
+  box.addEventListener('pointermove', (e) => {
+    const svg = box.querySelector('svg');
+    if (!svg || !sunView) return;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    const { px, py, pw, ph } = sunView.chart.box, { grid } = sunView;
+    if (p.x < px || p.x > px + pw || p.y < py || p.y > py + ph) { tip.hidden = true; return; }
+    const col = grid.cols[Math.min(grid.cols.length - 1, Math.floor(((p.x - px) / pw) * 365 / grid.stepDays))];
+    const min = sunView.chart.t0 + ((p.y - py) / ph) * (sunView.chart.t1 - sunView.chart.t0), k = Math.min(grid.n - 1, Math.floor(min / grid.stepMin));
+    const d = yearTable()[col.i], code = col.codes[k];
+    const s = sunVector(d.decl, hourAngleAtClock((k + 0.5) * grid.stepMin, state.lon, state.tz, d.eot), state.lat);
+    const name = { [SUN.night]: t('sunNight'), [SUN.behind]: t('sunBehind'), [SUN.hidden]: t('sunHidden'), [SUN.graze]: t('sunGraze', state.grazing), [SUN.lit]: t('sunLit') }[code];
+    const extra = code === SUN.night ? '' : ` · ${t('sunTipSun', altAz(s).alt.toFixed(0), (Math.asin(Math.max(-1, Math.min(1, dot(s, dial.frame.n)))) * RAD).toFixed(0))}`;
+    tip.textContent = t('sunTip', `${d.dom} ${t('monthsShort')[d.m]}`, fmtHM(k * grid.stepMin), name) + extra;
+    tip.hidden = false;
+    const r = box.getBoundingClientRect(), tw = tip.offsetWidth; // centred on the pointer, but kept inside the chart
+    tip.style.left = `${Math.min(r.width - tw, Math.max(0, e.clientX - r.left - tw / 2))}px`;
+    tip.style.top = `${e.clientY - r.top}px`;
+  });
+  box.addEventListener('pointerleave', () => { tip.hidden = true; });
 }
 
 // ---------------- correction chart ----------------
@@ -155,7 +207,7 @@ function updateCorrectionMarker(sun, c) {
   if (key === markerKey) return;
   markerKey = key;
   // days since the start of the year; the curve's point for a day is its noon, so local noon on day i is i + 0.5
-  const days = Math.min(364.99, Math.round((Date.UTC(REF_YEAR, c.mo, c.d) - Date.UTC(REF_YEAR, 0, 1)) / 86400000) + (c.h * 60 + c.mi) / 1440);
+  const days = Math.min(364.99, dayOfYear(c.mo, c.d) + (c.h * 60 + c.mi) / 1440);
   const { solar, zone } = correctionAt(state.lon, state.tz, sun.eot);
   $('#cg-today').innerHTML = correctionMarker(corr, days, solar, zone);
   $('#corrNow').textContent = t('cgToday', `${c.d} ${t('monthsShort')[c.mo]}`, fmtMin(solar), fmtMin(zone), c.dst ? t('cgTodayDst') : '');
@@ -197,7 +249,8 @@ function renderTime() {
   if (time.mode === 'live') time.ms = Date.now();
   const c = syncTimeInputs();
   const sun = sunAt(time.ms, state.lat, state.lon);
-  const S = shadowPoint(sun.vec, dial.L, dial.frame);
+  const hidden = sunState(sun.vec, dial.frame, dial.horizon) === SUN.hidden; // behind an obstacle: no shadow on the dial
+  const S = hidden ? null : shadowPoint(sun.vec, dial.L, dial.frame);
   if (S && time.trailOn && time.anim !== 'off') {
     time.trail.push(S);
     if (time.trail.length > 4000) time.trail.shift();
@@ -212,8 +265,9 @@ function renderTime() {
   }
   // readout
   updateCorrectionMarker(sun, c);
+  updateSunMarker();
   const lit = sun.alt > 0 && S;
-  const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : t('rBehind');
+  const status = sun.alt <= 0 ? t('rNight') : lit ? t('rOnWall') : hidden ? t('rHidden') : t('rBehind');
   const zoneRead = sun.solarMin + lonCorrection(state.lon, state.tz);
   $('#readout').innerHTML = [
     `${t('rClock')}: <b>${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)} ${pad2(c.h)}:${pad2(c.mi)}</b> (UTC${c.off >= 0 ? '+' : ''}${c.off}${c.dst ? ' DST' : ''})`,
@@ -304,21 +358,70 @@ function bindMeasure() {
   const now = civilFromUtc(Date.now(), state.tz, state.dst);
   $('#mDate').value = `${now.y}-${pad2(now.mo + 1)}-${pad2(now.d)}`;
   $('#mTime').value = `${pad2(now.h)}:${pad2(now.mi)}`;
-  let shadowD = null, compassD = null;
+  let shadowD = null, compassD = null, meanD = null;
+  const readings = []; // shadow readings kept for averaging: { date, time, beta } (recomputed when the place changes)
+  const fromReading = (date, time, beta) => {
+    const [y, mo, d] = (date || '').split('-').map(Number);
+    const [h, mi] = (time || '').split(':').map(Number);
+    if (![y, mo, d, h, mi].every(Number.isFinite)) return undefined;
+    const sun = sunAt(utcFromCivil(y, mo - 1, d, h, mi, state.tz, state.dst), state.lat, state.lon);
+    return { sun, D: sun.alt > 0 ? relativeDeclination(state.lat, wallFromShadow(sun.az, beta)) : null };
+  };
   const calc = () => {
-    const [y, mo, d] = ($('#mDate').value || '').split('-').map(Number);
-    const [h, mi] = ($('#mTime').value || '').split(':').map(Number);
     const beta = Number($('#mBeta').value) || 0;
-    if ([y, mo, d, h, mi].every(Number.isFinite)) {
-      const sun = sunAt(utcFromCivil(y, mo - 1, d, h, mi, state.tz, state.dst), state.lat, state.lon);
-      shadowD = sun.alt > 0 ? relativeDeclination(state.lat, norm180(sun.az - 180 - beta)) : null;
-      $('#mShadowOut').textContent = shadowD === null ? t('mNoSun') : `${shadowD.toFixed(1)}°  (${t('mSunAz')} ${sun.az.toFixed(1)}°)`;
+    const r = fromReading($('#mDate').value, $('#mTime').value, beta);
+    if (r) {
+      shadowD = r.D;
+      $('#mShadowOut').textContent = shadowD === null ? t('mNoSun') : `${shadowD.toFixed(1)}°  (${t('mSunAz')} ${r.sun.az.toFixed(1)}°)`;
     }
+    $('#mShadowWarn').hidden = Math.abs(beta) < BETA_POOR;
+    $('#mShadowWarn').textContent = t('mBetaPoor');
+    // the kept readings and their mean
+    const ds = [];
+    $('#mReadings').innerHTML = readings.map((rd, i) => {
+      const x = fromReading(rd.date, rd.time, rd.beta);
+      if (x?.D != null) ds.push(x.D);
+      return `<li><span>${esc(t('mReading', rd.date, rd.time, rd.beta, x?.D == null ? '—' : x.D.toFixed(1)))}</span><button type="button" data-rm="${i}" aria-label="${esc(t('mRemove'))}">✕</button></li>`;
+    }).join('');
+    const m = circularMean(ds);
+    meanD = m && m.n > 1 ? m.mean : null;
+    $('#mMeanRow').hidden = meanD === null;
+    if (meanD !== null) $('#mMean').textContent = t('mMean', m.n, m.mean.toFixed(1), m.spread.toFixed(1));
     compassD = relativeDeclination(state.lat, norm180((Number($('#mBearing').value) || 0) + (Number($('#mMagDecl').value) || 0) - 180));
     $('#mCompassOut').textContent = `${compassD.toFixed(1)}°`;
   };
   for (const id of ['#mDate', '#mTime', '#mBeta', '#mBearing', '#mMagDecl']) $(id).addEventListener('input', calc);
   $('#mShadowApply').addEventListener('click', () => { if (shadowD !== null) { state.D = Math.round(shadowD * 10) / 10; update(); } });
+  $('#mAdd').addEventListener('click', () => {
+    // only the validated fields are kept (they are shown again in the list)
+    const date = $('#mDate').value, time = $('#mTime').value, beta = Number($('#mBeta').value) || 0;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(time) && fromReading(date, time, beta)?.D != null) { readings.push({ date, time, beta }); calc(); }
+  });
+  $('#mReadings').addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) { readings.splice(Number(b.dataset.rm), 1); calc(); } });
+  $('#mMeanApply').addEventListener('click', () => { if (meanD !== null) { state.D = Math.round(meanD * 10) / 10; update(); } });
+  // the phone's compass: average 3 seconds of headings (lying flat, top pointing away from the wall) into the bearing field
+  $('#mPhone').addEventListener('click', async () => {
+    const out = $('#mPhoneOut');
+    const DO = window.DeviceOrientationEvent;
+    if (!DO) { out.textContent = t('mPhoneNone'); return; }
+    if (typeof DO.requestPermission === 'function') { // iOS asks first
+      try { if (await DO.requestPermission() !== 'granted') { out.textContent = t('mPhoneDenied'); return; } } catch { out.textContent = t('mPhoneDenied'); return; }
+    }
+    const got = [];
+    const on = (e) => { const h = compassHeading(e); if (h !== null) { got.push(h); out.textContent = t('mPhoneWait', got.length); } };
+    const type = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
+    window.addEventListener(type, on);
+    out.textContent = t('mPhoneWait', 0);
+    setTimeout(() => {
+      window.removeEventListener(type, on);
+      const m = circularMean(got);
+      if (!m) { out.textContent = t('mPhoneNone'); return; }
+      const bearing = Math.round(((m.mean + 360) % 360) * 10) / 10;
+      $('#mBearing').value = bearing;
+      out.textContent = t('mPhoneDone', bearing.toFixed(1), m.spread.toFixed(1), m.n);
+      calc();
+    }, 3000);
+  });
   $('#mCompassApply').addEventListener('click', () => { state.D = Math.round(compassD * 10) / 10; update(); });
   // the shadow result depends on lat/lon/tz/dst: without this it kept the old place's value after a change
   refreshMeasure = calc;
@@ -430,6 +533,7 @@ function init() {
   bindTime();
   bindMeasure();
   bindDownloads();
+  bindSunHover();
   update();
   requestAnimationFrame(tick);
 }

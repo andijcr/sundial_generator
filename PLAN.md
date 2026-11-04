@@ -118,13 +118,26 @@ point of shadow-casting material there, so several constructions share one dial:
 | Triangular polar style | the shadow of the whole edge | latitude and D (`sin SH = cos φ cos D`, plate along the substyle, `tan SD = sin D / tan φ`) | sharpest reading; impossible when the axis is parallel to the wall (D = ±90°) |
 | Perpendicular rod | the shadow of the tip | only L | simplest; fuzzy tip |
 | Oversized rod / style edge (×2, ×3, ×5; the whole style triangle is scaled ×k about R, with a notch on the hypotenuse at the true N) | the shadow of the notch, on a long shadow line from F | only L (notch L from the wall) | a rod k times longer: its shadow is k·P, so the line out of F gives the direction and the notch's shadow the point P |
-| Vertical blade | the shadow of the tip | only L (blade height h = L, 45° brace) | flat fin in the vertical plane ⟂ wall; easy to cut and mount; also works for east/west walls |
+| Vertical blade | the shadow of the tip | only L (blade height h = bladeR × L, 0.3–3, default 1: a 45° brace) | flat fin in the vertical plane ⟂ wall; easy to cut and mount; also works for east/west walls |
 
 A *vertical edge* cannot be a polar style (it is parallel to the Earth's axis
 only at the poles); its shadow gives azimuth, not time. Open idea: let the user
 choose the blade height, and add a pinhole-plate nodus for a sharper spot.
 
+### When the sun reaches the wall
+`sunlightGrid` (`dial.js`) evaluates `sunState` (night / behind the wall / hidden by the horizon profile / grazing /
+lit) every 2 days and 10 minutes of standard time (hour angle from the clock: solar = zone − lonCorrection + EoT).
+`sunChart` (`svg.js`) draws it as run-length rectangles, hatched where hidden, with a summer-time strip; the page adds a
+marker and a hover readout. The horizon profile (`horizon`, text) is parsed by `parseHorizon` into numbers only and
+stored in canonical form; `horizonAlt` interpolates it around the circle. `sunStats` (and so the warnings) and the
+simulated shadow respect it; the dial's lines and the auto-fit do not (an obstacle can move).
+
 ### SVG export (print plans)
+Laser files (`material: 'laser'`): `laserLayers` (`svg.js`) sorts a sheet's flat markup into Inkscape layers by class
+(`laserLayerOf`: plate/cut → Cut #f00, dial lines/marks/folds → Score #00f, plate text → Engrave #000, the rest → Notes
+#0a0), and `LASER` holds the colours that `dialCss`/`sheetCss` use. Each gnomon piece is one closed cut outline including
+its tab. The face sheet's title block width is estimated from its lines; the 100 mm bar goes beside it when there is
+room, else below it.
 - Real units: `width="…mm"` so 1 user unit = 1 mm at 100 % print scale.
 - **Sheet 1 — dial face** with gnomon foot / nodus foot marked, plate
   dimensions, a 100 mm scale bar to verify print scaling, the vertical
@@ -192,8 +205,11 @@ choose the blade height, and add a pinhole-plate nodus for a sharper spot.
 Wall declination is the input most people get wrong. Helper tool: hold a
 plumb line / ruler against the wall, note the time when the shadow is
 perpendicular to the wall (or measure an angle at a known time) → page
-computes D from the sun's azimuth. Plus a compass method with magnetic
-declination note (~+4° E in Rome).
+computes D from the sun's azimuth (`wallFromShadow`). Shadow readings can be kept in a list and averaged around
+the circle (`circularMean`, mean and circular standard deviation); a β beyond ±75° (`BETA_POOR`) gets a warning,
+since the shadow then runs almost along the wall. Plus a compass method with magnetic declination (a link to
+NOAA's calculator), which can read the phone's compass: lying flat, top pointing away from the wall, 3 s of
+`deviceorientation` headings averaged (`compassHeading`: iOS `webkitCompassHeading`, else 360° − absolute α).
 
 ---
 
@@ -229,8 +245,13 @@ Pages. No npm install required to run; `node --test` for the maths tests.
 7. Third gnomon option: vertical blade (tip-only) with its own template.
 
 Milestones 1-7 are done. Known gaps and ideas: during animation the trail and
-3D view are redrawn in full every frame; with every option on, some labels at
-the foot of the figure-8s overlap; adjustable blade height; pinhole nodus.
+3D view are redrawn in full every frame; pinhole nodus.
+
+Label placement: every label is first put where its own mark wants it, then `placeLabels` (`dial.js`)
+resolves collisions by rank (solar hours, zone hours, figure-8 hours, summer-time numbers, date lines, old
+hours, month names, azimuth/altitude). A label whose spot is taken moves to the nearest free spot within
+about 3.5 font sizes, inside the plate; a summer-time number first moves with its hour number. Widths are
+estimated (0.6 em per character).
 
 ## 5. Later: gnomon width (thickness) and the build
 

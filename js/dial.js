@@ -5,7 +5,7 @@
 // foot F (the point of the wall right behind the nodus), x to the right as you
 // face the wall, y up. The nodus N sits at distance L in front of F.
 
-import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180 } from './astro.js';
+import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, hourAngleAtClock } from './astro.js';
 
 export const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -27,6 +27,40 @@ export const TROPIC_LAT = 23.44;
 export const absoluteDeclination = (lat, delta) => norm180(lat < 0 ? 180 - delta : delta);
 export const relativeDeclination = absoluteDeclination;
 
+// ---- Measuring a wall ----
+
+/**
+ * Wall declination from south (deg, west +) from one shadow reading: the sun's azimuth (from north, clockwise) and the
+ * angle β of the shadow of a stick perpendicular to the wall, from the perpendicular, positive to the right as you face
+ * the wall. With β = 0 the sun is straight in front of the wall, so the wall faces the sun's azimuth: D = az − 180.
+ */
+export const wallFromShadow = (sunAz, beta) => norm180(sunAz - 180 - beta);
+
+/** A shadow at more than this angle from the perpendicular runs almost along the wall: the reading is poor. */
+export const BETA_POOR = 75;
+
+/**
+ * Mean of angles (deg) around the circle, and their spread (circular standard deviation, deg): readings of 179° and −179°
+ * average to 180°, not 0°. Returns { mean (−180..180), spread, n }, or null for no readings.
+ */
+export function circularMean(degs) {
+  if (!degs.length) return null;
+  const c = degs.reduce((a, d) => a + Math.cos(d * DEG), 0) / degs.length, s = degs.reduce((a, d) => a + Math.sin(d * DEG), 0) / degs.length;
+  const R = Math.min(1, Math.hypot(c, s));
+  return { mean: norm180(Math.atan2(s, c) * RAD), spread: R > 1e-12 ? Math.sqrt(-2 * Math.log(R)) * RAD : 180, n: degs.length };
+}
+
+/**
+ * Magnetic compass heading (deg from north, clockwise) of the top of a phone lying flat, from a deviceorientation event:
+ * iOS gives it directly (webkitCompassHeading); elsewhere an absolute event's alpha turns the other way (heading = 360 − α).
+ * null when the event carries no heading (not absolute, no magnetometer).
+ */
+export function compassHeading(e) {
+  if (e && Number.isFinite(e.webkitCompassHeading)) return norm360(e.webkitCompassHeading);
+  if (e && e.absolute && Number.isFinite(e.alpha)) return norm360(360 - e.alpha);
+  return null;
+}
+
 /** Largest |Δ| offered. Walls facing away from the sun are only offered inside the tropics. */
 export const wallLimit = (lat) => (Math.abs(lat) < TROPIC_LAT ? 180 : 90);
 
@@ -46,10 +80,11 @@ export function wallFrame(D) {
  * wall normal and the vertical. Its lower edge runs from the foot F out to the
  * nodus (distance L); its upper edge slopes back to the wall at height h above F.
  * Only the tip (nodus) is read, so the dial itself is the same as for a rod.
- * h is a fixed fraction of L (a 45° brace).
+ * h = r·L, with r the setting `bladeR` (default 1: a 45° brace). A low blade is less conspicuous,
+ * a tall one stiffer; the tip, and so the dial, stays the same.
  */
 export const BLADE_RATIO = 1;
-export const bladeHeight = (L) => L * BLADE_RATIO;
+export const bladeHeight = (L, r = BLADE_RATIO) => L * r;
 
 /** Direction of the north celestial pole in [east, north, up]. */
 export function poleAxis(lat) {
@@ -220,8 +255,76 @@ export function autoFit(lat, D, plate, grazing, includeRoot, bottomReserve = 0, 
   return { L, fx, fy, empty, relaxedTo: g < grazing && !empty ? g : null, clamped: L !== wanted };
 }
 
-/** Hours of sun on the wall, averaged per day over the year, and daylight hours. */
-export function sunStats(lat, D) {
+// ---- Horizon profile and when the sun reaches the wall ----
+
+/** At most this many points in a horizon profile. */
+export const HORIZON_MAX = 36;
+
+/**
+ * Horizon profile from text: "az:alt" pairs (separated by commas, semicolons or spaces), compass azimuth (0 = north, 90 = east)
+ * and the altitude of the obstacles' top, degrees. Anything that is not such a pair is ignored, azimuths are wrapped
+ * to 0..360, altitudes held to 0..89, the points sorted by azimuth (a repeated azimuth keeps its last value).
+ * Returns [[az, alt], ...]: what is stored and drawn never contains anything but numbers.
+ */
+export function parseHorizon(str) {
+  const byAz = new Map();
+  for (const m of String(str ?? '').matchAll(/(-?\d+(?:\.\d+)?)\s*[:=/]\s*(-?\d+(?:\.\d+)?)/g)) { // any separator between the pairs
+    const az = Math.round(norm360(+m[1]) * 10) / 10 % 360, alt = Math.round(Math.min(89, Math.max(0, +m[2])) * 10) / 10;
+    byAz.delete(az);
+    byAz.set(az, alt);
+    if (byAz.size > HORIZON_MAX) byAz.delete(byAz.keys().next().value);
+  }
+  return [...byAz].sort((a, b) => a[0] - b[0]);
+}
+/** The canonical text of a horizon profile (what the URL stores). */
+export const formatHorizon = (pts) => pts.map(([a, h]) => `${a}:${h}`).join(', ');
+
+/** Altitude of the horizon profile at compass azimuth az: linear between neighbouring points, around the circle. One point is the whole horizon; none is 0. */
+export function horizonAlt(pts, az) {
+  if (!pts?.length) return 0;
+  if (pts.length === 1) return pts[0][1];
+  const z = norm360(az);
+  const j = pts.findIndex((p) => p[0] > z), b = pts[j === -1 ? 0 : j], a = pts[j <= 0 ? pts.length - 1 : j - 1];
+  const span = norm360(b[0] - a[0]) || 360;
+  return a[1] + (b[1] - a[1]) * (norm360(z - a[0]) / span);
+}
+
+/** The sun's state as seen from the wall. graze: on the wall, but within the auto-fit's grazing angle of its plane (long, faint shadows). */
+export const SUN = { night: 0, behind: 1, hidden: 2, graze: 3, lit: 4 };
+export function sunState(s, fr, hz = [], grazing = 0) {
+  if (s[2] <= 0) return SUN.night;
+  const sn = dot(s, fr.n);
+  if (sn <= 0) return SUN.behind;
+  if (hz.length) { const { alt, az } = altAz(s); if (alt <= horizonAlt(hz, az)) return SUN.hidden; }
+  return sn < Math.sin(grazing * DEG) ? SUN.graze : SUN.lit;
+}
+
+/**
+ * When the sun reaches the wall through the (reference) year, against standard (zone) clock time: one column every
+ * `stepDays` days, one cell every `stepMin` minutes, each a SUN state. Hour angle from the clock:
+ * hourAngleAtClock (astro.js). litH: hours of sun on the wall that day (grazing included); avgOpen: the average with an open horizon.
+ */
+export function sunlightGrid(lat, lon, tz, D, hz = [], grazing = 0, stepDays = 2, stepMin = 10) {
+  const fr = wallFrame(D), Y = yearTable(), n = Math.round(1440 / stepMin);
+  const cols = [];
+  let open = 0; // cells that would be lit with an open horizon (lit, grazing or hidden)
+  for (let i = 0; i < Y.length; i += stepDays) {
+    const d = Y[i], codes = new Uint8Array(n);
+    let lit = 0;
+    for (let k = 0; k < n; k++) {
+      codes[k] = sunState(sunVector(d.decl, hourAngleAtClock((k + 0.5) * stepMin, lon, tz, d.eot), lat), fr, hz, grazing);
+      if (codes[k] >= SUN.graze) lit++;
+      if (codes[k] >= SUN.hidden) open++;
+    }
+    cols.push({ i, codes, litH: lit * stepMin / 60 });
+  }
+  const avg = cols.reduce((a, c) => a + c.litH, 0) / cols.length, avgOpen = open * stepMin / 60 / cols.length;
+  const max = cols.reduce((a, c) => (c.litH > a.litH ? c : a)), min = cols.reduce((a, c) => (c.litH < a.litH ? c : a));
+  return { stepDays, stepMin, n, cols, avg, avgOpen, max, min };
+}
+
+/** Hours of sun on the wall (above the horizon profile hz, if any), averaged per day over the year, and daylight hours. */
+export function sunStats(lat, D, hz = []) {
   const fr = wallFrame(D);
   const Y = yearTable();
   let lit = 0, day = 0, days = 0;
@@ -229,11 +332,58 @@ export function sunStats(lat, D) {
     days++;
     for (let H = -180; H < 180; H += 2.5) {
       const s = sunVector(Y[i].decl, H, lat);
-      if (s[2] > 0) { day++; if (dot(s, fr.n) > 0) lit++; }
+      if (s[2] > 0) { day++; if (sunState(s, fr, hz) >= SUN.graze) lit++; }
     }
   }
   const k = 10 / 60 / days; // 2.5° = 10 minutes
   return { litPerDay: lit * k, dayPerDay: day * k };
+}
+
+/** Box of a label (dial coords, mm): [x0, x1, y0, y1]. Text is centred on (x, y); the width is estimated (0.6 em per character). */
+export function labelBox(lb, fs, x = lb.x, y = lb.y) {
+  const [w, h] = labelSize(lb, fs);
+  return [x - w / 2, x + w / 2, y - h / 2, y + h / 2];
+}
+const labelSize = (lb, fs) => { const z = fs * (lb.size || 1); return [[...lb.text].length * 0.6 * z + 0.15 * z, 0.85 * z]; };
+const boxesHit = (a, b) => a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3];
+
+// Which labels keep their place when two collide: the hour numbers first, then the summer-time numbers
+// (which follow their hour number), the date lines, the old hours, and the small month and angle labels last.
+const LABEL_RANK = { hour: 0, zone: 1, ana: 2, dst: 3, date: 4, ital: 5, bab: 5, dateMinor: 6, az: 8, alt: 8 };
+const labelRank = (lb) => (lb.cls === 'ana' && lb.size ? 7 : LABEL_RANK[lb.cls] ?? 9); // a small 'ana' label is a month name
+
+/**
+ * Move labels so they do not overlap, in place. Labels are placed by rank; each stays where it was put if that is free,
+ * else it goes to the nearest free spot (rings up to about 3.5 font sizes out, inside the clip box). A label with `of`
+ * (a summer-time number) first moves with the label it belongs to. One that finds no free spot stays put.
+ */
+export function placeLabels(labels, clip, fs) {
+  const order = labels.map((lb, i) => [labelRank(lb), i]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, i]) => labels[i]);
+  const placed = [], moved = new Map();
+  for (const lb of order) {
+    const z = fs * (lb.size || 1), [w, h] = labelSize(lb, fs); // the size once per label: the search below tries up to 128 spots
+    const box = (x, y) => [x - w / 2, x + w / 2, y - h / 2, y + h / 2];
+    const free = (x, y) => { const b = box(x, y); return !placed.some((p) => boxesHit(b, p)); };
+    const inside = (x, y) => x - w / 2 >= clip.x0 && x + w / 2 <= clip.x1 && y - h / 2 >= clip.y0 && y + h / 2 <= clip.y1;
+    // a summer-time number follows its hour number, unless that would take it off the plate
+    const d = lb.of && moved.get(lb.of);
+    const follow = d && inside(lb.x + d[0], lb.y + d[1]);
+    const x0 = lb.x + (follow ? d[0] : 0), y0 = lb.y + (follow ? d[1] : 0);
+    let best = [x0, y0];
+    if (!free(x0, y0)) {
+      search: for (let k = 1; k <= 8; k++) {
+        const r = 0.45 * z * k;
+        for (let a = 0; a < 16; a++) {
+          const x = x0 + r * Math.cos(a * Math.PI / 8), y = y0 + r * Math.sin(a * Math.PI / 8);
+          if (inside(x, y) && free(x, y)) { best = [x, y]; break search; }
+        }
+      }
+    }
+    moved.set(lb, [best[0] - lb.x, best[1] - lb.y]);
+    lb.x = best[0]; lb.y = best[1];
+    delete lb.of;
+    placed.push(box(lb.x, lb.y));
+  }
 }
 
 /**
@@ -325,10 +475,11 @@ export function computeDial(cfg) {
       if (isMajor && clipped.length) {
         const lb = labelAtEnd(clipped, ref, fs * 0.9);
         if (lb) {
-          labels.push({ x: lb.p[0], y: lb.p[1], text: hourText(h), cls });
+          const main = { x: lb.p[0], y: lb.p[1], text: hourText(h), cls };
+          labels.push(main);
           if (dstLabels) {
             const q = clampIn([lb.p[0] - lb.dir[1] * fs * 1.1, lb.p[1] + lb.dir[0] * fs * 1.1]);
-            labels.push({ x: q[0], y: q[1], text: hourText(h + 1), cls: 'dst', size: 0.75 });
+            labels.push({ x: q[0], y: q[1], text: hourText(h + 1), cls: 'dst', size: 0.75, of: main });
           }
         }
       }
@@ -432,10 +583,11 @@ export function computeDial(cfg) {
         const p = pts[k];
         const dx = p[0] - cx, dy = p[1] - cy, n = Math.hypot(dx, dy) || 1;
         const q = clampIn([p[0] + (dx / n) * fs * 0.9, p[1] + (dy / n) * fs * 0.9]);
-        labels.push({ x: q[0], y: q[1], text: hourLabel, cls: 'ana' });
+        const main = { x: q[0], y: q[1], text: hourLabel, cls: 'ana' };
+        labels.push(main);
         if (dstLabel) {
           const q2 = clampIn([q[0] + fs * 1.1, q[1]]);
-          labels.push({ x: q2[0], y: q2[1], text: dstLabel, cls: 'dst', size: 0.75 });
+          labels.push({ x: q2[0], y: q2[1], text: dstLabel, cls: 'dst', size: 0.75, of: main });
         }
       }
     }
@@ -526,9 +678,11 @@ export function computeDial(cfg) {
     }
   }
 
+  placeLabels(layers.flatMap((l) => l.labels), clip, fs);
+
   // ---------- Warnings & stats ----------
   const warnings = [];
-  const stats = sunStats(lat, D);
+  const stats = sunStats(lat, D, cfg.horizon || []);
   if (Math.abs(lat) < 10) warnings.push(['nearEquator']);
   // these two only concern the triangular polar style
   if (o.gPolar && !root) warnings.push(['polarParallel']);
@@ -540,5 +694,5 @@ export function computeDial(cfg) {
   if (b.n && (b.x0 * L < clip.x0 - 1 || b.x1 * L > clip.x1 + 1 || b.y0 * L < clip.y0 - 1 || b.y1 * L > clip.y1 + 1)) warnings.push(['clipped']);
   if (root && (root[0] < clip.x0 - m || root[0] > clip.x1 + m || root[1] < clip.y0 - m || root[1] > clip.y1 + m) && o.gPolar) warnings.push(['rootOutside']);
 
-  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs };
+  return { frame: fr, root, angles, layers, clip, warnings, stats, L, plate: P, fontSize: fs, bladeH: bladeHeight(L, o.bladeR ?? BLADE_RATIO), horizon: cfg.horizon || [] };
 }
