@@ -1192,3 +1192,37 @@ test('10-minute hour lines: hairlines between the half hours, unlabelled, in pla
   assert.match(css, /\.l-hourFine\{fill:none;stroke:#000/);
   assert.ok(!buildDial(sanitize({ ...DEFAULTS }).s, t).layers.find((l) => l.id === 'hourSolarFine').lines.length, 'off by default');
 });
+
+test('10-minute ticks keep one side along each month line, even where it turns steep (tropical pole-facing wall)', () => {
+  const t = makeT('en'), Y = yearTable();
+  for (const [D, lat, lon, tz, dst] of [[170, 10, 0, 0, 'none'], [-170, 10, 0, 0, 'none'], [80, 41.9, 12.5, 1, 'EU'], [45, -33.87, 151.2, 10, 'AU']]) {
+    const { s } = sanitize({ ...DEFAULTS, anaClock: true, dTicks10: true, D, lat, lon, tz, dst });
+    const dial = buildDial(s, t), tks = dial.layers.find((l) => l.id === 'clockTicks').lines;
+    for (const day of Y.filter((x) => x.dom === 1)) {
+      const sides = new Set();
+      for (let T = 0; T < 1440; T += 10) {
+        const H = wallClockHourAngle(day.i, T, s.lon, s.tz, s.dst);
+        const SPd = (h) => shadowPoint(sunVector(day.decl, h, s.lat), dial.L, dial.frame), p = SPd(H), q = SPd(H + 0.5);
+        if (!p || !q) continue;
+        const tk = tks.find((l) => Math.hypot(l[0][0] - p[0], l[0][1] - p[1]) < 1e-6);
+        if (tk) sides.add(Math.sign((q[0] - p[0]) * (tk[1][1] - tk[0][1]) - (q[1] - p[1]) * (tk[1][0] - tk[0][0])));
+      }
+      assert.ok(sides.size <= 1, `D ${D} lat ${lat}: the ticks of 1 ${day.m + 1} switch side`);
+    }
+  }
+});
+
+test('wall-clock dial: the info sheet checks the 12 o\'clock figure-8, and the 10-minute lines have their own black-and-white dashes', () => {
+  for (const lang of ['en', 'it']) {
+    const t = makeT(lang), on = sanitize({ ...DEFAULTS, lang, anaClock: true }).s, off = sanitize({ ...DEFAULTS, lang }).s;
+    // the sheet's text with its wrapped lines joined back
+    const sheet = (s) => [...svgDoc(infoSheet(buildDial(s, t), { s, t, place: 'x', dateStr: 'x' })).matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join(' ');
+    const words = (str) => esc(str).split(' ').slice(-4).join(' '); // the endings differ (both start 'Verify on a sunny day')
+    assert.ok(sheet(on).includes(words(t('stepClock'))) && !sheet(on).includes(words(t('steps')[4])), `${lang}: the clock check replaces the solar-noon one`);
+    assert.ok(sheet(off).includes(words(t('steps')[4])) && !sheet(off).includes(words(t('stepClock'))), `${lang}: unchanged without it`);
+  }
+  const t = makeT('en'), s = sanitize({ ...DEFAULTS, hTen: true, hZone: true, ink: 'bw' }).s, css = faceSheet(buildDial(s, t), { s, t }).css;
+  const dash = (k) => (css.match(new RegExp(`\\.l-${k}\\{[^}]*stroke-dasharray:([^;}]+)`)) || [])[1];
+  assert.ok(dash('hourFine') && dash('zoneFine'), 'the 10-minute lines are dashed in black and white');
+  assert.equal(new Set(['hourFine', 'zoneFine', 'zone', 'zoneMinor'].map(dash)).size, 3, 'distinct from each other and from the zone lines (zone and its half hours share theirs)');
+});

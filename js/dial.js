@@ -148,9 +148,23 @@ export function yearTable() {
  * This is what a phone shows, so the wall-clock figure-8s and the 10-minute ticks are drawn from it.
  */
 export function wallClockHourAngle(i, minutes, lon, tz, rule) {
-  const d = yearTable()[i], summer = rule !== 'none' && isDst(dayMs(i), tz, rule);
-  return hourAngleAtClock(minutes - (summer ? 60 : 0), lon, tz, d.eot);
+  return hourAngleAtClock(minutes - (summerFlags(tz, rule)[i] ? 60 : 0), lon, tz, yearTable()[i].eot);
 }
+// Is summer time in force on day i of the reference year (at noon UTC)? Cached per time zone and rule: the wall-clock 8s ask
+// for every day of every hour, and fitPlateToPage builds the dial hundreds of times.
+const SUMMER = new Map();
+function summerFlags(tz, rule) {
+  const key = `${tz}|${rule}`;
+  if (!SUMMER.has(key)) SUMMER.set(key, yearTable().map((d) => rule !== 'none' && isDst(dayMs(d.i), tz, rule)));
+  return SUMMER.get(key);
+}
+
+/**
+ * The wall-clock figure-8s are on: they read what a phone shows (summer time included) at the rod's tip, and replace the
+ * straight hour lines and the other figure-8s (whose controls are then disabled). Rod only. Used by the dial, the sheets
+ * and the controls.
+ */
+export const clockOn = (s) => !!(s.anaClock && s.gRod);
 
 export function declLimits() {
   const Y = yearTable();
@@ -465,7 +479,7 @@ export function computeDial(cfg) {
 
   // ---------- Hour lines ----------
   // Wall-clock figure-8s (rod only) replace every other time line: the straight hour lines and the other figure-8s.
-  const clock = !!(o.anaClock && o.gRod);
+  const clock = clockOn(o);
   function hourSet(id, shift, cls, dstLabels) {
     const step = o.hTen ? 1 / 6 : o.hQuarter ? 0.25 : o.hHalf ? 0.5 : 1;
     const major = [], minor = [], fine = [], ext = [], labels = [];
@@ -647,16 +661,21 @@ export function computeDial(cfg) {
   if (ticks10) {
     const tk = [];
     for (const d of Y8.filter((x) => x.dom === 1)) {
-      const side = d.m < 6 ? 1 : -1;
+      // the normal to the left of the shadow's direction of travel through the day; the line's "upper" side is decided once,
+      // for the whole line (where most of its normals point up), so a line that turns steep keeps its ticks on one side
+      const marks = [];
       for (let T = 0; T < 1440; T += 10) {
         const H = wallClockHourAngle(d.i, T, lon, tz, o.dst);
         const p = SP(d.decl, H), a = SP(d.decl, H - 0.5), b = SP(d.decl, H + 0.5);
         if (!p || !a || !b || p[0] < clip.x0 || p[0] > clip.x1 || p[1] < clip.y0 || p[1] > clip.y1) continue;
         const tx = b[0] - a[0], ty = b[1] - a[1], tn = Math.hypot(tx, ty) || 1;
-        let nx = -ty / tn, ny = tx / tn;
-        if (ny < 0) { nx = -nx; ny = -ny; } // upwards
+        marks.push({ p, n: [-ty / tn, tx / tn], T });
+      }
+      const up = marks.reduce((acc, m) => acc + m.n[1], 0) >= 0 ? 1 : -1;
+      const side = (d.m < 6 ? 1 : -1) * up;
+      for (const { p, n, T } of marks) {
         const len = (T % 60 === 0 ? 0.7 : T % 30 === 0 ? 0.5 : 0.32) * fs * side;
-        tk.push([p, [p[0] + nx * len, p[1] + ny * len]]);
+        tk.push([p, [p[0] + n[0] * len, p[1] + n[1] * len]]);
       }
     }
     add('clockTicks', 'clockTick', clipAll(tk, clip));

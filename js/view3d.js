@@ -121,7 +121,8 @@ export class View3D {
     poly([W(-P.fx, P.fy), W(P.w - P.fx, P.fy), W(P.w - P.fx, P.fy - P.h), W(-P.fx, P.fy - P.h)], '#fbf6ea', '#555');
     for (const layer of dial.layers) {
       const col = COLORS[layer.cls] || '#444';
-      for (const l of layer.lines) line(l.map(([x, yy]) => W(x, yy)), col, layer.cls === 'hour' || layer.cls === 'zone' ? 1.4 : 0.8);
+      const w = layer.cls === 'hour' || layer.cls === 'zone' ? 1.4 : /Fine$/.test(layer.cls) ? 0.4 : 0.8; // 10-minute lines stay hairlines
+      for (const l of layer.lines) line(l.map(([x, yy]) => W(x, yy)), col, w);
     }
     // shadow on the wall
     if (S) {

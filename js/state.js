@@ -1,7 +1,7 @@
 // Default settings, presets, input sanity bounds, and the glue that turns UI
 // state into a computed dial. Shared by the page (app.js) and Node (build).
 
-import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
+import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX, clockOn } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
 import { sizesFor, faceSheetSize, gnomonSheetFor, tileLayout } from './svg.js';
 
@@ -112,11 +112,7 @@ const r2 = (x, q) => Math.round(x / q) * q;
  */
 export const dstLabelsApply = (s) => !clockOn(s) && !!(s.hZone || s.anaZoneNoon || s.anaHours);
 
-/**
- * The wall-clock figure-8s are on: they read what a phone shows (summer time included) at the rod's tip, and replace the
- * straight hour lines and the other figure-8s (whose controls are then disabled). Rod only.
- */
-export const clockOn = (s) => !!(s.anaClock && s.gRod);
+export { clockOn }; // defined in dial.js, which the sheets also use
 
 /** URL-hash form of the state: only values that differ from the defaults. */
 export function serializeState(s) {
