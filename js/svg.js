@@ -4,7 +4,7 @@
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
 import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections, sunVector } from './astro.js';
-import { absoluteDeclination, clockOn, tipOn, wallFrame, shadowPoint, wallClockHourAngle, yearTable, dot } from './dial.js';
+import { absoluteDeclination, clockOn, tipOn, wallFrame, shadowPoint, wallClockHourAngle, yearTable, dot, sunState, SUN, parseHorizon } from './dial.js';
 import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
@@ -642,7 +642,7 @@ export function infoSheet(dial, ctx) {
     platePos(dial, s, t).join(' · '),
   ], 5);
   const steps = [...t('steps')];
-  if (clockOn(s)) steps[steps.length - 1] = t('stepClock'); // no solar 12 line to check against: the 12 o'clock figure-8 instead
+  if (clockOn(s)) steps[steps.length - 1] = t(tipOn(s) ? 'stepClockTip' : 'stepClock'); // no solar 12 line to check against: the 12 o'clock figure-8 instead
   block([{ t: t('stepsTitle'), b: true }, ...steps.map((st, i) => `${i + 1}. ${st}`)], 4);
   // corrections table
   inner += textLines(x, y, [{ t: t('tableTitle'), b: true }], 3.6);
@@ -881,24 +881,27 @@ export const TEST_OFFSETS = [-10, -5, -2, 0, 2, 5, 10];
  * wall turned `dD` degrees from the set direction (in the page's convention: from the equator side, west +). Dial coords, mm,
  * or null when the sun is not on the wall.
  */
-export function testShadow(dial, s, i, minutes, dD = 0, L = dial.L) {
+export function testShadow(dial, s, i, minutes, dD = 0, L = dial.L, summer = undefined) {
   const d = yearTable()[i], fr = dD ? wallFrame(absoluteDeclination(s.lat, s.D + dD)) : dial.frame;
-  return shadowPoint(sunVector(d.decl, wallClockHourAngle(i, minutes, s.lon, s.tz, s.dst), s.lat), L, fr);
+  return shadowPoint(sunVector(d.decl, wallClockHourAngle(i, minutes, s.lon, s.tz, s.dst, summer), s.lat), L, fr);
 }
 
 // The test sheet is fitted to the times when the sun is well onto the wall: at least this far off its plane (deg) and 5° up,
 // for two hours or more, relaxed in steps for a date when the sun only grazes the wall (the squarer the sun, the better the marks). Nearer the plane the shadows run off towards infinity.
 const TEST_OFF_WALL = [45, 30, 15, 8];
-/** Wall-clock minutes of day i, every 10, when the sun is well onto the wall (see TEST_OFF_WALL); [] if it barely reaches it. */
-function testGoodTimes(dial, s, i) {
-  const d = yearTable()[i];
+/**
+ * Wall-clock minutes of day i, every 10, when the sun is well onto the wall (see TEST_OFF_WALL) and not behind the horizon
+ * profile; [] if it barely reaches it. summer: whether summer time is in force that day (default: the reference year's).
+ */
+function testGoodTimes(dial, s, i, summer = undefined) {
+  const d = yearTable()[i], hz = parseHorizon(s.horizon || '');
   for (const deg of TEST_OFF_WALL) {
     const out = [];
     for (let m = 0; m < 1440; m += 10) {
-      const v = sunVector(d.decl, wallClockHourAngle(i, m, s.lon, s.tz, s.dst), s.lat);
-      if (v[2] > Math.sin(5 * Math.PI / 180) && dot(v, dial.frame.n) >= Math.sin(deg * Math.PI / 180)) out.push(m);
+      const v = sunVector(d.decl, wallClockHourAngle(i, m, s.lon, s.tz, s.dst, summer), s.lat);
+      if (v[2] > Math.sin(5 * Math.PI / 180) && sunState(v, dial.frame, hz, deg) === SUN.lit) out.push(m);
     }
-    if (out.length >= (deg === 8 ? 3 : 12)) return out; // two hours of good sun, or at the last step anything at all
+    if (out.length >= (deg === TEST_OFF_WALL[TEST_OFF_WALL.length - 1] ? 1 : 12)) return out; // two hours of good sun, or at the last step anything at all
   }
   return [];
 }
@@ -908,10 +911,9 @@ function testGoodTimes(dial, s, i) {
  * with F placed to suit) fit a w x h box. A wall-direction or tilt error shows the same whatever the rod, and a longer rod
  * spreads the dots: a short dial rod would crowd them near noon. Held to 10..200 mm.
  */
-export function testRodLength(dial, s, i, w, h) {
-  const good = testGoodTimes(dial, s, i);
+export function testRodLength(dial, s, i, w, h, summer = undefined, good = testGoodTimes(dial, s, i, summer)) {
   if (!good.length) return Math.round(dial.L); // the sun barely reaches the wall: nothing to fit, the dial's own rod
-  const pts = [[0, 0], ...good.map((m) => testShadow(dial, s, i, m, 0, 1)).filter(Boolean)];
+  const pts = [[0, 0], ...good.map((m) => testShadow(dial, s, i, m, 0, 1, summer)).filter(Boolean)];
   const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
   const span = Math.max((Math.max(...xs) - Math.min(...xs)) / (w - 16), (Math.max(...ys) - Math.min(...ys)) / (h - 16), 1e-6);
   return Math.min(200, Math.max(10, Math.floor(1 / span / 5) * 5));
@@ -934,14 +936,16 @@ function testCss(bw) {
  * predicted positions and how to tell a wall-direction error from a tilted rod or a wrong rod length.
  */
 export function testSheet(dial, ctx) {
-  const { s, t } = ctx, bw = s.ink === 'bw', i = ctx.day ?? 0;
+  // ctx.summer: summer time on the actual date (the reference year's change dates differ by up to six days)
+  const { s, t } = ctx, bw = s.ink === 'bw', i = ctx.day ?? 0, summer = ctx.summer;
   const W = 186, x0 = 10, bx = 10, by = 36, bw2 = TEST_BOX.w, bh = TEST_BOX.h; // the drawing box on the sheet, mm
-  const L = ctx.testL || testRodLength(dial, s, i, bw2, bh), shadow = (m, dD = 0) => testShadow(dial, s, i, m, dD, L);
+  const goodList = testGoodTimes(dial, s, i, summer);
+  const L = ctx.testL || testRodLength(dial, s, i, bw2, bh, summer, goodList), shadow = (m, dD = 0) => testShadow(dial, s, i, m, dD, L, summer);
   // where the day's shadows are (main direction), to place F so that the middle of the day fits the box
   const pts = [];
   for (let m = 0; m < 1440; m += 5) { const p = shadow(m); if (p && Math.abs(p[0]) < 4 * bw2 && Math.abs(p[1]) < 4 * bh) pts.push([m, p]); }
   // F goes where the good times' shadows fit (long, grazing ones do not decide it)
-  const goodList = testGoodTimes(dial, s, i), good = new Set(goodList), mid = pts.filter(([m]) => good.has(m));
+  const good = new Set(goodList), mid = pts.filter(([m]) => good.has(m));
   const xs = [0, ...mid.map(([, p]) => p[0])], ys = [0, ...mid.map(([, p]) => p[1])];
   const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
   // F on the sheet: the middle of the path's box in the middle of the drawing box, but F itself always inside the box

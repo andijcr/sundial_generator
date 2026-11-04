@@ -4,7 +4,7 @@ import { sunVector, DEG, norm180 } from '../js/astro.js';
 import { wallClockHourAngle, wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, formatHorizon, horizonAlt, sunState, SUN, sunlightGrid, HORIZON_MAX, labelBox, placeLabels, wallFrame, shadowPoint, styleRoot, dialAngles, dot, poleAxis, autoFit, clipPolyline, sunStats, bladeHeight, BLADE_RATIO, absoluteDeclination, relativeDeclination, wallLimit, TROPIC_LAT } from '../js/dial.js';
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, tipOn, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
-import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt, sunAt, utcFromCivil, REF_YEAR, dayOfYear } from '../js/astro.js';
+import { hourAngleAtClock, fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt, sunAt, utcFromCivil, REF_YEAR, dayOfYear } from '../js/astro.js';
 import { testSheet, testShadow, testRodLength, TEST_OFFSETS, TEST_BOX, gnomonSheetFor, esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX, yearTable } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
@@ -1356,4 +1356,30 @@ test('two-point rod: winter time at the tip (k x L, blue), summer time at the no
   // without summer time every day is winter time: everything at the tip
   const none = buildDial(sanitize({ ...base, rodTip: true, rodX: 2, dst: 'none' }).s, t);
   assert.ok(!none.layers.some((l) => /^ana[RF]s?$/.test(l.id) && l.lines.length) && none.layers.some((l) => /^ana[RF]t$/.test(l.id)), 'all at the tip without summer time');
+});
+
+test('test sheet: summer time of the actual date, the horizon profile; two-point rod: fit guard, off-plate warning, check step', () => {
+  const t = makeT('en'), { s } = sanitize({ ...DEFAULTS }), dial = buildDial(s, t);
+  // 27 Oct: summer time in the reference year (until 31 Oct 2027), not in 2026 (ended 25 Oct): the caller says which
+  const i = dayOfYear(9, 27), d = yearTable()[i];
+  const std = testShadow(dial, s, i, 12 * 60, 0, dial.L, false), sum = testShadow(dial, s, i, 12 * 60, 0, dial.L, true);
+  const ref = shadowPoint(sunVector(d.decl, hourAngleAtClock(12 * 60, s.lon, s.tz, d.eot), s.lat), dial.L, dial.frame);
+  near(std[0], ref[0], 1e-9); near(std[1], ref[1], 1e-9);
+  assert.ok(Math.hypot(sum[0] - std[0], sum[1] - std[1]) > 5, 'an hour apart');
+  assert.deepEqual(testShadow(dial, s, i, 720), sum, 'default: the reference year');
+  const sheet = (summer) => svgDoc(testSheet(dial, { s, t, day: i, summer, testL: 40 }));
+  assert.notEqual(sheet(false), sheet(true));
+  // a horizon that hides the sun all day leaves no good times: the dial's own rod and the no-sun note
+  const hid = sanitize({ ...DEFAULTS, horizon: '0:89' }).s;
+  assert.equal(testRodLength(buildDial(hid, t), hid, i, TEST_BOX.w, TEST_BOX.h), Math.round(buildDial(hid, t).L));
+  // the gnomon fit never switches the two-point rod on (rodX 1 with rodTip ticked)
+  const r1 = sanitize({ ...DEFAULTS, anaClock: true, rodTip: true, rodX: 1, fitGnomonX: true, paper: 'A4' }).s;
+  assert.equal(fitGnomonScale(r1, t, 'A4', {}), null);
+  // the auto-fit sizes the dial for the notch: say how much of the tip's winter reading is off the plate
+  const w = buildDial(sanitize({ ...DEFAULTS, anaClock: true, rodTip: true, rodX: 3 }).s, t).warnings.find((x) => x[0] === 'tipClipped');
+  assert.ok(w && w[1] === 3 && w[2] > 5 && w[2] < 100, JSON.stringify(w));
+  assert.ok(!buildDial(sanitize({ ...DEFAULTS, anaClock: true }).s, t).warnings.some((x) => x[0] === 'tipClipped'));
+  // the check step on the info sheet says which point reads which season
+  const tp = sanitize({ ...DEFAULTS, anaClock: true, rodTip: true, rodX: 2 }).s;
+  assert.ok(svgDoc(infoSheet(buildDial(tp, t), { s: tp, t })).includes('NOTCH'));
 });

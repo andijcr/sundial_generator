@@ -1,6 +1,6 @@
 // UI wiring: state <-> controls, rendering, time loop, downloads.
 
-import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
+import { isDst, sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
 import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, testSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn, tipOn } from './state.js';
@@ -96,7 +96,7 @@ function writeControls() {
   $('[data-k="dTicks10"]').disabled = !clk;
   $('[data-k="rodTip"]').disabled = !clk || !(state.rodX > 1); // needs the wall-clock 8s and an oversized rod (a tip beyond the notch)
   // with the tip reading winter time the multiplier is part of the dial, so the gnomon fit (which changes it) is off
-  if (tipOn(state)) $('[data-k="fitGnomonX"]').disabled = true;
+  if (state.rodTip && clk) $('[data-k="fitGnomonX"]').disabled = true;
   $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;
   $('#frontWrap').hidden = !state.v2d;
   $('#v3dWrap').hidden = !state.v3d;
@@ -494,7 +494,7 @@ function bindDownloads() {
     Object.assign(state, fit);
     // then, if asked, the biggest gnomon that is one page too: only the multiplier changes, never the dial
     const fitted = sanitize(state).s;
-    if (state.fitGnomonX && !tipOn(fitted) && rodXApplies(fitted, buildDial(fitted, t))) {
+    if (state.fitGnomonX && !(fitted.rodTip && clockOn(fitted)) && rodXApplies(fitted, buildDial(fitted, t))) {
       const k = fitGnomonScale(fitted, t, state.paper, tileOpts());
       if (k) state.rodX = k; else inputWarnings.push(['fitGnomonNo']);
     }
@@ -508,7 +508,8 @@ function bindDownloads() {
   $('#dlTest').addEventListener('click', () => {
     const c = civilFromUtc(time.ms, state.tz, state.dst);
     const dateText = `${c.d} ${t('monthsShort')[c.mo]} ${c.y}`;
-    download(`${base()}-test-${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)}.svg`, svgDoc(testSheet(dial, { ...ctx(), day: dayOfYear(c.mo, c.d), dateText })));
+    const summer = state.dst !== 'none' && isDst(Date.UTC(c.y, c.mo, c.d, 12 - state.tz), state.tz, state.dst); // that year's change dates
+    download(`${base()}-test-${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)}.svg`, svgDoc(testSheet(dial, { ...ctx(), day: dayOfYear(c.mo, c.d), dateText, summer })));
   });
   $('#tiles').addEventListener('click', (e) => {
     const b = e.target.closest('button');

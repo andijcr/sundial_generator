@@ -201,14 +201,15 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
 
 /**
  * The largest gnomon multiplier rodX (in tenths, 1 to ROD_MAX) whose template is a single page of `paper`, for the dial as
- * it is: the dial (L, the foot, every mark) does not depend on rodX, so fitting the gnomon never changes the dial. Used after
+ * it is: the dial (L, the foot, every mark) does not depend on rodX, so fitting the gnomon never changes the dial (except with
+ * the two-point rod, whose winter curves are drawn at rodX x L: then it does nothing). Used after
  * fitPlateToPage when its option `fitGnomonX` is on. Returns null when even ×1 does not fit, or when rodX changes nothing
  * (rodXApplies). The tenths are tried from the top down, every one until the first that fits, so a sheet that does not grow
  * strictly with the multiplier cannot stop the search early.
  */
 export function fitGnomonScale(s, t, paper, opts = {}) {
   const dial = buildDial(s, t);
-  if (!rodXApplies(s, dial) || tipOn(s)) return null; // with the tip reading winter time, rodX is part of the dial: never change it
+  if (!rodXApplies(s, dial) || (s.rodTip && clockOn(s))) return null; // with the two-point rod asked for, rodX is part of the dial (raising it from x1 would switch the tip on): never change it
   const fits = (k) => { const sh = gnomonSheetFor(dial, { s: { ...s, rodX: k }, t, place: '', dateStr: '' }, paper, opts); return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1; };
   for (let k10 = ROD_MAX * 10; k10 >= 10; k10--) if (fits(k10 / 10)) return k10 / 10; // from the top: the first that fits is the largest
   return null;
