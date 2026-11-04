@@ -300,25 +300,52 @@ const CHAR_W = 2.0; // estimated width of one character of a 3.5 px dimension la
  * the title block) so the sheet is no bigger than it needs to be: every millimetre saved can save a
  * printed page. Label widths are estimated. A short vertical dimension puts its label to the right of its line.
  */
+// Where the face sheet's dimension lines sit, mm outside the plate: the plate's own size, then F, then R (full caption only).
+const DIM1 = 7, DIM2 = 14;
+const LASER_KEY_H = 16; // a laser sheet's key to its colours: three wrapped lines
+
+/** The short caption's lines: title, place and scale, and where F and R are on the plate (the numbers the dimension lines would give). */
+function briefLines(dial, s, t) {
+  const P = dial.plate;
+  return [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
+    `${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)} · ${P.w.toFixed(0)} × ${P.h.toFixed(0)} mm`,
+    ...platePos(dial, s, t)];
+}
+/** ["F: x mm from the left edge, y mm from the top", "R: …"]: where the foot and the style root are on the plate. */
+export const platePos = (dial, s, t) => {
+  const P = dial.plate, R = dial.root && s.gPolar ? [P.fx + dial.root[0], P.fy - dial.root[1]] : null;
+  return [t('posF', P.fx.toFixed(1), P.fy.toFixed(1)), ...(R ? [t('posR', R[0].toFixed(1), R[1].toFixed(1))] : [])];
+};
+
 function faceMargins(dial, s) {
   const P = dial.plate;
   const R = dial.root && s.gPolar ? [P.fx + dial.root[0], P.fy - dial.root[1]] : null; // style root in plate coords, y down
-  const rightOf = (x, len, text) => x + (Math.abs(len) > 28 ? 2 : 1.5 + text.length * CHAR_W);
-  let right = rightOf(12, P.fy, `F ${mm(P.fy)}`);
-  let left = 17.5, top = 17.8;
-  if (R) {
-    right = Math.max(right, rightOf(24, R[1], `R ${mm(R[1])}`), R[0] - P.w + 8);
+  const brief = !!s.faceBrief; // short caption: no dimension lines and no scale bar (the positions are in the caption)
+  const laserH = s.material === 'laser' ? LASER_KEY_H : 0;
+  const t = makeT(s.lang || 'en');
+  let left, top, right;
+  if (brief) {
+    left = 2; top = 2; right = 2;
+  } else {
+    // a long dimension's label runs along its line (about 3.5 mm beyond it); a short one's sits beside it
+    const rightOf = (x, len, text) => x + (Math.abs(len) > 28 ? 2 : 1.5 + text.length * CHAR_W);
+    right = rightOf(DIM1, P.fy, `F ${mm(P.fy)}`);
+    left = DIM1 + 3.5; top = DIM1 + 3.8;
+    if (R) right = Math.max(right, rightOf(DIM2, R[1], `R ${mm(R[1])}`));
+  }
+  if (R) { // the root, its circle and its letter may lie outside the plate
+    right = Math.max(right, R[0] - P.w + 8);
     left = Math.max(left, 8 - R[0]);
     top = Math.max(top, 6 - R[1]);
   }
-  const brief = !!s.faceBrief; // short caption: two lines, no scale bar (the plate's own dimensions are the scale)
-  // the title block is up to about 185 mm wide; the scale bar sits beside it when the plate is wide enough, else below it
-  // the full title block's width, estimated from its longest line (the place name, unknown here, gets 20 characters)
-  const t = makeT(s.lang || 'en');
-  const textW = brief ? 120 : TITLE_CHAR_W * Math.max(...summaryLines(dial, { s, t, place: '' }).map((l, i) => l.length + (i ? 0 : 20)), footLine(dial, s, t).length);
-  const barBelow = !brief && textW + 8 > P.w - 100; // the bar's left end is 100 mm left of the plate's right edge
-  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: (brief ? 50 : 74) + (barBelow ? 22 : 0) + (s.material === 'laser' ? 16 : 0) }; // a laser sheet has three more lines: what its colours mean
-  m.R = Math.max(m.R, Math.ceil(textW + 10 - P.w), barBelow ? 110 - P.w : 0); // room for the title block, and for the bar under it
+  // the title block's width, estimated from its longest line (the place name, unknown here, gets 20 characters)
+  const textW = TITLE_CHAR_W * (brief ? Math.max(...briefLines(dial, s, t).map((l) => (l.t || l).length))
+    : Math.max(...summaryLines(dial, { s, t, place: '' }).map((l, i) => l.length + (i ? 0 : 20)), footLine(dial, s, t).length));
+  const barBelow = !brief && textW + 8 > P.w - 100; // the scale bar's left end is 100 mm left of the plate's right edge
+  // bottom: the caption starts just below the plate (brief) or below the F and R dimensions; its height follows its lines
+  const B = brief ? 8 + (briefLines(dial, s, t).length - 1) * 3.6 * 1.45 + 4 + laserH : DIM2 + 12 + 6 * 3.6 * 1.45 + 6 + (barBelow ? 22 : 0) + laserH;
+  const m = { L: Math.ceil(left + 4), T: Math.ceil(top + 4), R: Math.ceil(right + 4), B: Math.ceil(B) };
+  m.R = Math.max(m.R, Math.ceil(textW + 6 - P.w), barBelow ? 110 - P.w : 0); // room for the title block, and for the bar under it
   m.barBelow = barBelow;
   return m;
 }
@@ -341,31 +368,34 @@ export function faceSheet(dial, ctx) {
     g += `<text class="dt" x="${f(P.fx + 2.5)}" y="${f(P.h * 0.04 + 10)}" transform="rotate(-90 ${f(P.fx + 2.5)} ${f(P.h * 0.04 + 10)})" style="text-anchor:end">${esc(t('plumb'))}</text>`;
     g += `<text class="dt" x="${f(P.fx - 3)}" y="${f(P.fy - 3)}" style="text-anchor:end">F</text>`;
   }
-  // dimensions
-  g += dimH(0, P.w, -14, 0, mm(P.w));
-  g += dimV(0, P.h, -14, 0, mm(P.h));
-  g += dimH(0, P.fx, P.h + 12, P.h, `F ${mm(P.fx)}`);
-  g += dimV(0, P.fy, P.w + 12, P.w, `F ${mm(P.fy)}`);
+  // dimensions, close to the plate (the short caption gives the positions in words instead)
+  if (!s.faceBrief) {
+    g += dimH(0, P.w, -DIM1, 0, mm(P.w));
+    g += dimV(0, P.h, -DIM1, 0, mm(P.h));
+    g += dimH(0, P.fx, P.h + DIM1, P.h, `F ${mm(P.fx)}`);
+    g += dimV(0, P.fy, P.w + DIM1, P.w, `F ${mm(P.fy)}`);
+  }
   if (dial.root && s.gPolar) {
     const rx = P.fx + dial.root[0], ry = P.fy - dial.root[1];
     if (s.material !== 'laser') g += `<text class="dt" x="${f(rx + 3)}" y="${f(ry - 3)}" style="text-anchor:start">R</text>`;
-    g += dimH(0, rx, P.h + 22, P.h, `R ${mm(rx)}`);
-    g += dimV(0, ry, P.w + 24, P.w, `R ${mm(ry)}`);
+    if (!s.faceBrief) {
+      g += dimH(0, rx, P.h + DIM2, P.h, `R ${mm(rx)}`);
+      g += dimV(0, ry, P.w + DIM2, P.w, `R ${mm(ry)}`);
+    }
   }
   const laser = s.material === 'laser';
   // a laser file has one layer per job (cut, score, engrave, notes); everything else is one drawing
   const done = (notes) => ({ W, H, inner: laser ? laserArrows(laserLayers([[g, `translate(${ML},${MT})`], [notes]])) : `<g transform="translate(${ML},${MT})">${g}</g>${notes}`, css: dialCss(s.material, sw, s.ink === 'bw'), name: 'face', bw: s.ink === 'bw', laser });
   // title block
-  const ty = MT + P.h + 36;
   if (s.faceBrief) {
-    return done(textLines(ML, ty - 2, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true },
-      `${Math.abs(s.lat).toFixed(4)}° ${s.lat >= 0 ? 'N' : 'S'}, ${Math.abs(s.lon).toFixed(4)}° ${s.lon >= 0 ? 'E' : 'W'} · D = ${s.D.toFixed(1)}° · L = ${mm(dial.L)}`, ...(laser ? wrapText(t('laserNote'), 60) : [])], 3.6));
+    return done(textLines(ML, MT + P.h + 8, [...briefLines(dial, s, t), ...(laser ? wrapText(t('laserNote'), Math.max(50, Math.floor((W - ML - 8) / 1.75))) : [])], 3.6));
   }
+  const ty = MT + P.h + DIM2 + 12;
   let inner = textLines(ML, ty, [{ t: `${t('title')} — ${t('sheetFace')}`, b: true }, ...summaryLines(dial, ctx),
     footLine(dial, s, t),
     `${t('generated')}: ${ctx.dateStr || ''}`], 3.6);
   // 100 mm scale bar
-  const LN = laser ? 16 : 0; // a laser sheet keeps a strip at the bottom for the key to its colours
+  const LN = laser ? LASER_KEY_H : 0; // a laser sheet keeps a strip at the bottom for the key to its colours
   const sx = barBelow ? ML : W - MR - 100, sy = H - 14 - LN;
   let bar = `<path class="dim" d="M${sx} ${sy}H${sx + 100}"/>`;
   for (let i = 0; i <= 10; i++) bar += `<path class="dim" d="M${sx + i * 10} ${sy}V${sy - (i % 5 === 0 ? 4 : 2)}"/>`;
@@ -548,6 +578,7 @@ export function infoSheet(dial, ctx) {
   block([{ t: t('angles'), b: true },
     `${t('SH')}: ${a.SH.toFixed(2)}°   ${t('SD')}: ${a.SD.toFixed(2)}°   ${t('DL')}: ${a.DL.toFixed(2)}°   ${t('substyleHour')}: ${fmtHM((12 + a.DL / 15) * 60)}`,
     dial.root ? t('rootLine', dial.root[0].toFixed(1), dial.root[1].toFixed(1), Math.hypot(...dial.root).toFixed(1)) : t('noPolar'),
+    platePos(dial, s, t).join(' · '),
   ], 5);
   block([{ t: t('stepsTitle'), b: true }, ...t('steps').map((st, i) => `${i + 1}. ${st}`)], 4);
   // corrections table
