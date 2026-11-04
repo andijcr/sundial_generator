@@ -8,7 +8,7 @@ import { mkdirSync, cpSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS, sanitize, buildDial, PRESETS } from '../js/state.js';
-import { faceSheet, gnomonSheet, infoSheet, correctionSheet, svgDoc, tileSheets } from '../js/svg.js';
+import { faceSheet, gnomonSheetFor, infoSheet, correctionSheet, svgDoc, tileSheets } from '../js/svg.js';
 import { makeT } from '../js/i18n.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -42,7 +42,7 @@ for (const [name, v] of Object.entries(variants)) {
   const t = makeT(s.lang);
   const dial = buildDial(s, t);
   const ctx = { s, t, place: PRESETS[s.place]?.name || '', dateStr };
-  const sheets = [faceSheet(dial, ctx), gnomonSheet(dial, ctx), infoSheet(dial, ctx), correctionSheet(dial, ctx)];
+  const sheets = [faceSheet(dial, ctx), gnomonSheetFor(dial, ctx, s.paper, { orient: s.orient, margin: s.printMargin }), infoSheet(dial, ctx), correctionSheet(dial, ctx)];
   for (const sh of sheets) {
     const file = `${name}-${sh.name}.svg`;
     writeFileSync(join(plans, file), svgDoc(sh));

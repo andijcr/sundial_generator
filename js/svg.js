@@ -422,11 +422,16 @@ export function faceSheet(dial, ctx) {
 export function gnomonSheet(dial, ctx) {
   const { s, t } = ctx;
   const L = dial.L, M = 14, TAB = 15, laser = s.material === 'laser';
-  let inner = '', x = M, H = 0;
+  let inner = '', H = 0;
   let right = M + 150; // right edge of the drawing (estimated), so the sheet is no wider than needed; 150 mm for the summary lines
-  const top = M + 12;
+  const top0 = M + 12;
   inner += textLines(M, M, [{ t: `${t('title')} — ${t('sheetGnomon')}`, b: true }], 5);
-  if (s.gPolar && dial.root) {
+  // The templates are pieces, each drawn with its top-left corner at (x, top) and returning { g, next (where the next piece
+  // starts), right, bottom }; the loop below lays them out in rows. The oversized rod has a row of its own at the bottom.
+  const pieces = [];
+  const kRod = s.gRod && s.rodX > 1 ? s.rodX : 1;
+  if (s.gPolar && dial.root) pieces.push((x, top) => {
+    let H = 0;
     // Oversized (rodX > 1): the whole triangle is rodX times bigger, so it is easy to cut and holds its shape; the notch on the
     // hypotenuse sits where the real nodus N would be (the original triangle's tip). Shadows scale about R, so the shadow of the
     // notch lands on the true point and the edge's shadow, the hour line, is just longer.
@@ -452,38 +457,44 @@ export function gnomonSheet(dial, ctx) {
     if (kP > 1) g += `<path class="dimx" d="M${f(Nx)} ${f(oy)}V${f(oy + tb)}"/>` + dimH(ox, Nx, oy + tb + 9, oy + tb, `R–F = ${mm(a1)}`);
     g += dimH(ox, ox + a, oy + tb + 9 + extra, oy + tb, mm(a));
     g += dimV(oy - LP, oy, ox + a + 10, ox + a, kP > 1 ? `${kP}×L = ${mm(LP)}` : `L = ${mm(L)}`);
-    // the edge label goes along the hypotenuse (past the notch when oversized) if it is long enough, else in the caption below
-    const edgeLabel = `${t('styleEdge')} — ${mm(hyp)}`, t0 = kP > 1 ? 1 / kP : 0, span = hyp * (1 - t0);
-    if (span > edgeLabel.length * 1.8 + 10) {
-      const mx = ox + a * (1 + t0) / 2, my = oy - LP * (1 + t0) / 2;
-      g += `<text class="dt" x="${f(mx - 3)}" y="${f(my - 3)}" transform="rotate(${f(-SH)} ${f(mx - 3)} ${f(my - 3)})">${esc(edgeLabel)}</text>`;
-    } else {
-      g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 25 + extra)}" style="text-anchor:start">${esc(edgeLabel)}</text>`;
-    }
     g += `<text class="dt" x="${f(ox - 3)}" y="${f(oy + 1)}" style="text-anchor:end">R</text>`;
     g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy + 4)}" style="text-anchor:start">${kP > 1 ? 'F′' : 'F'}</text>`;
     if (kP > 1) g += `<text class="dt" x="${f(Nx - 6)}" y="${f(Ny - 4)}" style="text-anchor:end">N (${esc(t('nodus'))}) = ${esc(t('rodNotch'))}</text>`;
     else g += `<text class="dt" x="${f(ox + a + 3)}" y="${f(oy - LP - 2)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
     g += `<circle cx="${f(Nx)}" cy="${f(Ny)}" r="1" class="nodus"/>`;
-    g += `<text class="dt" x="${f(kP > 1 ? ox + (a1 + a) / 2 : ox + a / 2)}" y="${f(oy + tb / 2 + 1)}">${esc(t('tab'))}</text>`;
-    g += `<text class="dt" x="${f(ox)}" y="${f(oy + tb + 20 + extra)}" style="text-anchor:start">${esc(t('wallEdge'))}</text>`;
-    H = Math.max(H, oy + tb + 27 + extra); // the bottom of the captions under the tab
-    if (kP > 1) {
-      const lines = wrapText(t('polarLongNote', kP), 60);
-      g += textLines(ox, oy + tb + 31 + extra, lines, 3.2);
-      H = Math.max(H, oy + tb + 31 + extra + lines.length * 3.2 * 1.45);
+    // the tab's label on the tab if it fits between its slanted ends (right of the R–F mark when oversized), else in the caption
+    const tabRoom = kP > 1 ? a - a1 - tb : a - 2 * tb, tabOn = tabRoom >= t('tab').length * 1.9 + 4;
+    if (tabOn) g += `<text class="dt" x="${f(kP > 1 ? ox + (a1 + a) / 2 : ox + a / 2)}" y="${f(oy + tb / 2 + 1)}">${esc(t('tab'))}</text>`;
+    // the caption under the tab: the wall edge, the tab (when not on it), the style edge (when not along the hypotenuse, past
+    // the notch when oversized), each wrapped to about the triangle's width so a small triangle does not get a wide piece
+    const edgeLabel = `${t('styleEdge')} — ${mm(hyp)}`, t0 = kP > 1 ? 1 / kP : 0, span = hyp * (1 - t0);
+    const edgeAlong = span > edgeLabel.length * 1.8 + 10;
+    if (edgeAlong) {
+      const mx = ox + a * (1 + t0) / 2, my = oy - LP * (1 + t0) / 2;
+      g += `<text class="dt" x="${f(mx - 3)}" y="${f(my - 3)}" transform="rotate(${f(-SH)} ${f(mx - 3)} ${f(my - 3)})">${esc(edgeLabel)}</text>`;
     }
-    inner += g;
-    x += a + 36;
-    right = Math.max(right, ox + a + 24);
-  } else if (s.gPolar) {
+    const capChars = Math.max(28, Math.floor((a + 24) / 1.65));
+    const capLines = [t('wallEdge'), ...(tabOn ? [] : [t('tabBelow')]), ...(edgeAlong ? [] : [edgeLabel])].flatMap((l) => wrapText(l, capChars));
+    let capY = oy + tb + 20 + extra - 5;
+    for (const l of capLines) { capY += 5; g += `<text class="dt" x="${f(ox)}" y="${f(capY)}" style="text-anchor:start">${esc(l)}</text>`; }
+    H = Math.max(H, capY + 2); // the bottom of the captions under the tab
+    // the caption may be wider than a small triangle: the piece is as wide as either
+    let capW = Math.max(...capLines.map((l) => l.length)) * 1.65; // 3.5 px caption text: about 1.5 mm a character, measured
+    if (kP > 1) {
+      const lines = wrapText(t('polarLongNote', kP), Math.min(60, Math.max(36, Math.floor((a + 24) / 1.6))));
+      g += textLines(ox, capY + 6, lines, 3.2);
+      H = Math.max(H, capY + 6 + lines.length * 3.2 * 1.45);
+      capW = Math.max(capW, Math.max(...lines.map((l) => l.length)) * 1.6);
+    }
+    const rightP = Math.max(ox + a + 24, ox + capW);
+    return { g, next: rightP + 12, right: rightP, bottom: H };
+  });
+  else if (s.gPolar) pieces.push((x, top) => {
     const lines = wrapText(t('noPolar'), 40);
-    inner += textLines(M, top + 8, lines, 4);
-    x += 100; // keep the blade / rod clear of the text
-    right = Math.max(right, M + 90);
-    H = Math.max(H, top + 8 + lines.length * 4 * 1.45 + 12);
-  }
-  if (s.gBlade) {
+    // the next piece starts 100 mm on, clear of the text
+    return { g: textLines(x, top + 8, lines, 4), next: x + 100, right: x + 90, bottom: top + 8 + lines.length * 4 * 1.45 + 12 };
+  });
+  if (s.gBlade) pieces.push((x, top) => {
     // flat fin in the vertical plane: wall edge on the left (F at its foot), bottom edge out to the nodus N,
     // sloping edge back up to the wall at height h. A fold tab runs along the wall edge.
     const h = dial.bladeH, tb = Math.min(TAB, L / 4, h / 3); // a low blade gets a narrower tab (its slanted ends must not cross)
@@ -514,38 +525,17 @@ export function gnomonSheet(dial, ctx) {
     const lx = bx + L / 2 + 3 * Math.sin(th), ly = fy - h / 2 - 3 * Math.cos(th);
     if (roomy) g += `<text class="dt" x="${f(lx)}" y="${f(ly)}" transform="rotate(${f(tip)} ${f(lx)} ${f(ly)})">${esc(t('bladeBrace'))} — ${mm(Math.hypot(L, h))}</text>`;
     if (tabFits) g += `<text class="dt" x="${f(bx - tb / 2)}" y="${f((ay + fy) / 2)}" transform="rotate(-90 ${f(bx - tb / 2)} ${f((ay + fy) / 2)})">${esc(t('tab'))}</text>`;
-    inner += g;
     const caption = [t('bladeWallEdge')];
     if (hShort) caption.push(`h = ${mm(h)}`);
     if (!roomy) caption.push(`${t('bladeTop')}: ↑ · ${tip.toFixed(1)}° · ${t('bladeBrace')} ${mm(Math.hypot(L, h))}`);
     if (!tabFits) caption.push(t('bladeTabAt'));
-    const bladeLines = [...caption, ...wrapText(`${t('blade')}: ${t('bladeNote')}`, 52)];
-    inner += textLines(bx - tb, fy + 22, bladeLines, 3.2);
-    x += Math.max(TAB + L + 70, 115);
-    right = Math.max(right, bx + L + 24, bx - tb + 90);
-    H = Math.max(H, fy + 22 + bladeLines.length * 3.2 * 1.45); // the bottom of the caption
-  }
-  const kRod = s.gRod && s.rodX > 1 ? s.rodX : 1;
-  if (kRod > 1) {
-    // Oversized rod: rodX times longer than needed, lying along the bottom of the sheet. Its shadow on the wall is a long line
-    // from F (every point of the rod casts its shadow in proportion to its distance from the wall), so the direction is easy
-    // to read; the notch, L from the wall, throws its shadow exactly where the true nodus would.
-    const EMB = 30, WD = 6, ND = 2.5, len = kRod * L;
-    const x0 = M + 6, xf = x0 + len, xe = xf + EMB, xn = xf - L, oy = Math.max(H, top) + 16, my = oy + WD / 2;
-    let g = `<polygon class="cut" points="${f(x0)},${f(oy)} ${f(xn - 3)},${f(oy)} ${f(xn)},${f(oy + ND)} ${f(xn + 3)},${f(oy)} ${f(xe)},${f(oy)} ${f(xe)},${f(oy + WD)} ${f(xn + 3)},${f(oy + WD)} ${f(xn)},${f(oy + WD - ND)} ${f(xn - 3)},${f(oy + WD)} ${f(x0)},${f(oy + WD)}"/>`;
-    g += `<path class="fold" d="M${f(xf)} ${f(oy - 4)}V${f(oy + WD + 4)}"/>`;
-    g += `<circle cx="${f(x0)}" cy="${f(my)}" r="1.2" class="nodus"/>`;
-    g += `<text class="dt" x="${f(x0)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
-    g += `<text class="dt" x="${f(xn)}" y="${f(oy - 3)}">${esc(t('rodNotch', mm(L)))}</text>`;
-    g += `<text class="dt" x="${f(xf + 3)}" y="${f(oy - 3)}" style="text-anchor:start">${EMB} mm ${esc(t('rodEmbed'))}</text>`;
-    g += dimH(x0, xf, oy + WD + 9, oy + WD, `${kRod}× = ${mm(len)}`);
-    g += dimH(xn, xf, oy + WD + 19, oy + WD, `L = ${mm(L)}`);
-    const longLines = wrapText(`${t('rod')}: ${t('rodLongNote', kRod)}`, 90);
-    g += textLines(x0, oy + WD + 28, longLines, 3.4);
-    inner += g;
-    right = Math.max(right, xe + 4, xf + 3 + (`${EMB} mm ${t('rodEmbed')}`).length * CHAR_W);
-    H = Math.max(H, oy + WD + 28 + longLines.length * 3.4 * 1.45);
-  } else if (s.gRod || (s.gPolar && !dial.root)) {
+    const CAP = 40; // caption width in characters (about 70 mm at 3.2 px): it sets the piece's width when L is small
+    const bladeLines = [...caption, `${t('blade')}: ${t('bladeNote')}`].flatMap((l) => wrapText(l, CAP));
+    g += textLines(bx - tb, fy + 22, bladeLines, 3.2);
+    const rightB = Math.max(bx + L + 6 + `N (${t('nodus')})`.length * 1.8, bx - tb + Math.max(...bladeLines.map((l) => l.length)) * 1.6 + 2); // 3.2 px text: about 1.5 mm a character
+    return { g, next: rightB + 12, right: rightB, bottom: fy + 22 + bladeLines.length * 3.2 * 1.45 };
+  });
+  if (kRod === 1 && (s.gRod || (s.gPolar && !dial.root))) pieces.push((x, top) => {
     const EMB = 30, ox = x + 10, oy = top + 10;
     let g = `<rect class="cut" x="${f(ox - 2)}" y="${f(oy)}" width="4" height="${f(L + EMB)}"/>`;
     g += `<path class="fold" d="M${f(ox - 10)} ${f(oy + L)}H${f(ox + 10)}"/>`;
@@ -553,18 +543,67 @@ export function gnomonSheet(dial, ctx) {
     g += dimV(oy, oy + L, ox + 14, ox + 2, `L = ${mm(L)}`);
     g += `<text class="dt" x="${f(ox + 6)}" y="${f(oy + L + EMB / 2)}" style="text-anchor:start">${EMB} mm ${esc(t('rodEmbed'))}</text>`;
     g += `<text class="dt" x="${f(ox + 6)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
-    const rodLines = wrapText(`${t('rod')}: ${t('rodNote')}`, 38);
+    const rodLines = wrapText(`${t('rod')}: ${t('rodNote')}`, 28);
     g += textLines(ox - 2, oy + L + EMB + 6, rodLines, 3.5);
-    inner += g;
-    right = Math.max(right, ox + 30, ox - 2 + 38 * 1.9);
-    H = Math.max(H, oy + L + EMB + 6 + rodLines.length * 3.5 * 1.45); // the bottom of the caption
+    const rightR = Math.max(ox + 30, ox - 2 + Math.max(...rodLines.map((l) => l.length)) * 1.9, ox + 6 + `${EMB} mm ${t('rodEmbed')}`.length * 1.8, ox + 6 + `N (${t('nodus')})`.length * 1.8);
+    return { g, next: rightR + 12, right: rightR, bottom: oy + L + EMB + 6 + rodLines.length * 3.5 * 1.45 };
+  });
+  if (kRod > 1) pieces.push((x, top) => {
+    // Oversized rod: rodX times longer than needed, lying flat. Its shadow on the wall is a long line from F (every point of
+    // the rod casts its shadow in proportion to its distance from the wall), so the direction is easy to read; the notch,
+    // L from the wall, throws its shadow exactly where the true nodus would. Its caption is wrapped to about its own length.
+    const EMB = 30, WD = 6, ND = 2.5, len = kRod * L;
+    const x0 = x + 6, xf = x0 + len, xe = xf + EMB, xn = xf - L, oy = top + 10, my = oy + WD / 2; // room for two label lines above
+    let g = `<polygon class="cut" points="${f(x0)},${f(oy)} ${f(xn - 3)},${f(oy)} ${f(xn)},${f(oy + ND)} ${f(xn + 3)},${f(oy)} ${f(xe)},${f(oy)} ${f(xe)},${f(oy + WD)} ${f(xn + 3)},${f(oy + WD)} ${f(xn)},${f(oy + WD - ND)} ${f(xn - 3)},${f(oy + WD)} ${f(x0)},${f(oy + WD)}"/>`;
+    g += `<path class="fold" d="M${f(xf)} ${f(oy - 4)}V${f(oy + WD + 4)}"/>`;
+    g += `<circle cx="${f(x0)}" cy="${f(my)}" r="1.2" class="nodus"/>`;
+    g += `<text class="dt" x="${f(x0)}" y="${f(oy - 3)}" style="text-anchor:start">N (${esc(t('nodus'))})</text>`;
+    // the notch's label above the notch, one line higher when the notch is too close to the tip's label
+    const nLabel = `N (${t('nodus')})`, close = xn - x0 < (nLabel.length + t('rodNotch', mm(L)).length / 2) * 1.8 + 2;
+    g += `<text class="dt" x="${f(xn)}" y="${f(oy - (close ? 7.5 : 3))}">${esc(t('rodNotch', mm(L)))}</text>`;
+    g += `<text class="dt" x="${f(xf + 3)}" y="${f(oy - 3)}" style="text-anchor:start">${EMB} mm ${esc(t('rodEmbed'))}</text>`;
+    g += dimH(x0, xf, oy + WD + 9, oy + WD, `${kRod}× = ${mm(len)}`);
+    g += dimH(xn, xf, oy + WD + 19, oy + WD, `L = ${mm(L)}`);
+    const cap = x <= M ? 90 : Math.round(Math.min(90, Math.max(45, (xe - x0 + 30) / 1.7))); // a row of its own: the full width
+    const longLines = wrapText(`${t('rod')}: ${t('rodLongNote', kRod)}`, cap);
+    g += textLines(x0, oy + WD + 28, longLines, 3.4);
+    const rightL = Math.max(xe + 4, xf + 3 + (`${EMB} mm ${t('rodEmbed')}`).length * 1.8, x0 + Math.max(...longLines.map((l) => l.length)) * 1.7);
+    return { g, next: rightL + 12, right: rightL, bottom: oy + WD + 28 + longLines.length * 3.4 * 1.45, ownRow: !ctx.maxW };
+  });
+  // Lay the pieces out left to right. With ctx.maxW (the printable width of a page), a piece that would run past it starts a
+  // new row instead; without it they stay in one row.
+  {
+    let x = M, rowTop = top0;
+    for (const piece of pieces) {
+      let pc = piece(x, rowTop);
+      // a new row when the piece would pass the page (the sheet ends 8 mm right of the drawing)
+      // without a page width the long rod still takes a row of its own at the bottom, as it always did
+      if (x > M && (pc.ownRow || (ctx.maxW && pc.right + 8 > ctx.maxW))) { x = M; rowTop = H + 6; pc = piece(x, rowTop); }
+      inner += pc.g;
+      x = pc.next;
+      right = Math.max(right, pc.right);
+      H = Math.max(H, pc.bottom);
+    }
   }
-  const W = Math.max(Math.ceil(right + 12), 180);
+  const W = Math.max(Math.ceil(right + 8), 180);
   // the summary sits just below the drawing, so the sheet is no taller than it needs to be (it should fit an A4 page)
   inner += textLines(M, H + 6, summaryLines(dial, ctx).slice(0, 3), 3.2);
   H = Math.ceil(H + 6 + 2 * 3.2 * 1.45 + 5);
   if (laser) inner = laserArrows(laserLayers([[inner]]));
   return { W, H, inner, css: '', name: 'gnomon', bw: s.ink === 'bw', laser };
+}
+
+/**
+ * The gnomon sheet laid out for a paper size: one row of templates, or rows wrapped at the printable width of a portrait or a
+ * landscape page (as opts.orient allows), whichever needs the fewest pages (then the smallest sheet). No paper: one row.
+ */
+export function gnomonSheetFor(dial, ctx, paper, opts = {}) {
+  const one = gnomonSheet(dial, ctx);
+  if (!PAPERS[paper]) return one;
+  const orients = opts.orient === 'portrait' || opts.orient === 'landscape' ? [opts.orient] : ['portrait', 'landscape'];
+  const cands = [one, ...orients.map((o) => tileLayout(1, 1, paper, 0, { ...opts, orient: o })).filter(Boolean).map((a) => gnomonSheet(dial, { ...ctx, maxW: a.aw }))];
+  const pages = (sh) => tileLayout(sh.W, sh.H, paper, 0, opts)?.pages ?? Infinity;
+  return cands.reduce((b, c) => (pages(c) < pages(b) || (pages(c) === pages(b) && c.W * c.H < b.W * b.H) ? c : b));
 }
 
 export const fmtMin = (m) => {

@@ -2,7 +2,7 @@
 
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
-import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, gnomonSheet, infoSheet, correctionSheet, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
+import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonScale, serializeState, dstLabelsApply } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -447,7 +447,7 @@ const tileOpts = () => ({ orient: state.orient, margin: state.printMargin, t });
 // everything to print: the dial's pages, then the gnomon template, the info sheet and the chart (each normally one page)
 function printJob() {
   const c = ctx(), nm = PRESETS[state.place]?.name || '';
-  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheet(dial, c), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')], [correctionSheet(dial, c), t('sheetCorr')]];
+  return [[faceSheet(dial, c), `${t('sheetFace')} ${nm}`], [gnomonSheetFor(dial, c, state.paper, tileOpts()), t('sheetGnomon')], [infoSheet(dial, c), t('sheetInfo')], [correctionSheet(dial, c), t('sheetCorr')]];
 }
 // only the page grid is computed here; the SVGs are built when a button is clicked
 function updateTiles() {
@@ -488,7 +488,7 @@ function bindDownloads() {
     update();
   });
   $('#dlFace').addEventListener('click', () => download(`${base()}-face.svg`, svgDoc(faceSheet(dial, ctx()))));
-  $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheet(dial, ctx()))));
+  $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheetFor(dial, ctx(), state.paper, tileOpts()))));
   $('#dlInfo').addEventListener('click', () => download(`${base()}-info.svg`, svgDoc(infoSheet(dial, ctx()))));
   $('#dlCorr').addEventListener('click', () => download(`${base()}-correction.svg`, svgDoc(correctionSheet(dial, ctx()))));
   $('#tiles').addEventListener('click', (e) => {

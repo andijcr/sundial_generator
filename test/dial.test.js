@@ -5,7 +5,7 @@ import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, 
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonScale, ROD_MAX, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
-import { esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
+import { gnomonSheetFor, esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -283,14 +283,17 @@ test('front view: blade is a vertical bar from F; rod and blade share one dot', 
 test('blade template: tab label only where it fits, otherwise it moves to the caption', () => {
   const sheet = (lang, L) => {
     const { s, t, dial } = bladeCfg({ lang, auto: false, L, fx: 300, fy: 120 });
-    return { svg: svgDoc(gnomonSheet(dial, { s, t, place: 'x', dateStr: 'x' })), t };
+    const svg = svgDoc(gnomonSheet(dial, { s, t, place: 'x', dateStr: 'x' }));
+    // the caption's lines joined back (it is wrapped to the piece's width)
+    const caption = [...svg.matchAll(/<text class="st"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join(' ');
+    return { svg, caption, t };
   };
   const roomy = sheet('en', 80);
-  assert.ok(roomy.svg.includes(`>${roomy.t('tab')}</text>`) && !roomy.svg.includes(roomy.t('bladeTabAt')), 'L=80 EN: label on the tab');
+  assert.ok(roomy.svg.includes(`>${roomy.t('tab')}</text>`) && !roomy.caption.includes(roomy.t('bladeTabAt')), 'L=80 EN: label on the tab');
   const tight = sheet('it', 50);
-  assert.ok(!tight.svg.includes(`>${tight.t('tab')}</text>`) && tight.svg.includes(tight.t('bladeTabAt')), 'L=50 IT: caption instead');
+  assert.ok(!tight.svg.includes(`>${tight.t('tab')}</text>`) && tight.caption.includes(esc(tight.t('bladeTabAt'))), 'L=50 IT: caption instead');
   const tiny = sheet('en', 20);
-  assert.ok(tiny.svg.includes(tiny.t('bladeTabAt')));
+  assert.ok(tiny.caption.includes(tiny.t('bladeTabAt')));
   assert.ok(!/<text class="dt"[^>]*>h = 20\.0 mm<\/text>/.test(tiny.svg) && /<text class="st"[^>]*>h = 20\.0 mm<\/text>/.test(tiny.svg), 'short h dimension: the value goes in the caption, not off the sheet to the left');
 });
 
@@ -782,11 +785,8 @@ test('fit to one page with fitGnomonX: the dial is fitted as without it, then th
     const opts = { orient, margin: 8 }, t = makeT(s0.lang);
     const s = sanitize({ ...s0, ...fitPlateToPage(s0, t, paper, opts) }).s;
     const k = fitGnomonScale(s, t, paper, opts), tag = `${paper} ${orient} ${JSON.stringify(extra)}`;
-    const pages = (x) => { const sn = { ...s, rodX: x }, sh = gnomonSheet(buildDial(sn, t), { s: sn, t, place: '', dateStr: '' }); return tileLayout(sh.W, sh.H, paper, 0, opts).pages; };
-    if (k === null) { // only when not even ×1 is one page (rod, triangle and blade side by side are wider than A4)
-      assert.ok(pages(1) > 1 && extra.gBlade, `${tag}: no multiplier although ×1 is one page`);
-      continue;
-    }
+    const pages = (x) => { const sn = { ...s, rodX: x }, sh = gnomonSheetFor(buildDial(sn, t), { s: sn, t, place: '', dateStr: '' }, paper, opts); return tileLayout(sh.W, sh.H, paper, 0, opts).pages; };
+    assert.ok(k !== null, `${tag}: the templates wrap into rows, so even rod, triangle and blade together fit`);
     assert.ok(k >= 1 && k <= ROD_MAX && Math.abs(k * 10 - Math.round(k * 10)) < 1e-9, `${tag}: ${k}`);
     assert.equal(pages(k), 1, `${tag}: ×${k} is one page`);
     for (let x = Math.round(k * 10 + 1); x <= ROD_MAX * 10; x++) assert.ok(pages(x / 10) > 1, `${tag}: ×${x / 10} would also fit`);
@@ -1072,6 +1072,36 @@ test('laser key on the short caption: wrapped to the sheet, inside it on every s
     for (const m of key) {
       assert.ok(+m[1] + m[3].length * 1.75 <= sh.W + 0.5, `${lang} ${plateW}x${plateH} ${faceBrief}: "${m[3].slice(0, 20)}…" past the right edge`);
       assert.ok(+m[2] <= sh.H - 2, `${lang} ${plateW}x${plateH} ${faceBrief}: key past the bottom`);
+    }
+  }
+});
+
+test('gnomon sheet for a paper: rows wrap at the printable width, never more pages than one row, unchanged without paper', () => {
+  for (const lang of ['en', 'it']) for (const c of [{ gBlade: true }, { gBlade: true, rodX: 2.5 }, { gBlade: true, gRod: true, gPolar: true, plateW: 269, plateH: 153 }, {}, { gPolar: false }]) {
+    const { s } = sanitize({ ...DEFAULTS, ...c, lang });
+    const t = makeT(lang), dial = buildDial(s, t), ctx = { s, t, place: 'x', dateStr: 'x' };
+    const one = gnomonSheet(dial, ctx);
+    assert.equal(svgDoc(gnomonSheetFor(dial, ctx, 'none', {})), svgDoc(one), 'no paper: one row, as before');
+    for (const paper of ['A4', 'A3']) for (const orient of ['auto', 'portrait', 'landscape']) {
+      const opts = { orient, margin: 8 }, sh = gnomonSheetFor(dial, ctx, paper, opts), svg = svgDoc(sh);
+      assert.ok(tileLayout(sh.W, sh.H, paper, 0, opts).pages <= tileLayout(one.W, one.H, paper, 0, opts).pages, `${lang} ${paper} ${orient}`);
+      assert.ok(!/NaN|undefined|Infinity/.test(svg));
+      // every drawn template stays inside the sheet
+      for (const m of svg.matchAll(/points="([^"]+)"/g)) for (const pt of m[1].trim().split(/\s+/)) {
+        const [x, y] = pt.split(',').map(Number);
+        assert.ok(x >= 0 && x <= sh.W && y >= 0 && y <= sh.H, `${lang} ${paper} ${orient}: template outside the sheet`);
+      }
+    }
+  }
+  // the case that did not fit before (296 x 135 mm): triangle, rod and blade at the A4 dial scale make one A4 page, in any orientation
+  for (const orient of ['auto', 'portrait', 'landscape']) {
+    const { s: s0 } = sanitize({ ...DEFAULTS, gBlade: true, paper: 'A4', orient }), tt = makeT('en'), opts = { orient, margin: 8 };
+    const s1 = sanitize({ ...s0, ...fitPlateToPage(s0, tt, 'A4', opts) }).s, d1 = buildDial(s1, tt);
+    const packed = gnomonSheetFor(d1, { s: s1, t: tt }, 'A4', opts);
+    assert.equal(tileLayout(packed.W, packed.H, 'A4', 0, opts).pages, 1, `${orient}: ${packed.W}x${packed.H}`);
+    if (orient === 'portrait') { // one row is wider than a portrait page: the templates wrap into rows to make it one page
+      const one = gnomonSheet(d1, { s: s1, t: tt });
+      assert.ok(one.W > 194 && packed.W <= 194, `portrait wraps: ${one.W} → ${packed.W}`);
     }
   }
 });

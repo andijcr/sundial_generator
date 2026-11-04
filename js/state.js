@@ -3,7 +3,7 @@
 
 import { computeDial, autoFit, parseHorizon, formatHorizon, absoluteDeclination, wallLimit, L_MIN, L_MAX } from './dial.js';
 import { DST_RULES, lonCorrection } from './astro.js';
-import { sizesFor, faceSheetSize, gnomonSheet, tileLayout } from './svg.js';
+import { sizesFor, faceSheetSize, gnomonSheetFor, tileLayout } from './svg.js';
 
 export const PRESETS = {
   rome: { name: 'Roma', lat: 41.9028, lon: 12.4964, tz: 1, dst: 'EU' },
@@ -207,7 +207,7 @@ export function fitPlateToPage(s, t, paper, opts = {}) {
 export function fitGnomonScale(s, t, paper, opts = {}) {
   if (!s.gRod && !s.gPolar) return null;
   const dial = buildDial(s, t);
-  const fits = (k) => { const sh = gnomonSheet(dial, { s: { ...s, rodX: k }, t, place: '', dateStr: '' }); return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1; };
+  const fits = (k) => { const sh = gnomonSheetFor(dial, { s: { ...s, rodX: k }, t, place: '', dateStr: '' }, paper, opts); return tileLayout(sh.W, sh.H, paper, 0, opts)?.pages === 1; };
   let best = null;
   for (let k10 = 10; k10 <= ROD_MAX * 10; k10++) if (fits(k10 / 10)) best = k10 / 10;
   return best;
