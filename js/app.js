@@ -2,7 +2,7 @@
 
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
-import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
+import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, testSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
 import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
@@ -501,6 +501,12 @@ function bindDownloads() {
   $('#dlGnomon').addEventListener('click', () => download(`${base()}-gnomon.svg`, svgDoc(gnomonSheetFor(dial, ctx(), state.paper, { ...tileOpts(), overlap: state.overlap }))));
   $('#dlInfo').addEventListener('click', () => download(`${base()}-info.svg`, svgDoc(infoSheet(dial, ctx()))));
   $('#dlCorr').addEventListener('click', () => download(`${base()}-correction.svg`, svgDoc(correctionSheet(dial, ctx()))));
+  // the shadow test sheet is for the date shown in the Time controls
+  $('#dlTest').addEventListener('click', () => {
+    const c = civilFromUtc(time.ms, state.tz, state.dst);
+    const dateText = `${c.d} ${t('monthsShort')[c.mo]} ${c.y}`;
+    download(`${base()}-test-${c.y}-${pad2(c.mo + 1)}-${pad2(c.d)}.svg`, svgDoc(testSheet(dial, { ...ctx(), day: dayOfYear(c.mo, c.d), dateText })));
+  });
   $('#tiles').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;

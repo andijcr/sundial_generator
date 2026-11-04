@@ -3,8 +3,8 @@
 //
 // Sheet units: 1 user unit = 1 mm (width/height are given in "mm").
 
-import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections } from './astro.js';
-import { absoluteDeclination, clockOn } from './dial.js';
+import { dayMs, dayOfYear, fmtHM, lonCorrection, yearCorrections, sunVector } from './astro.js';
+import { absoluteDeclination, clockOn, wallFrame, shadowPoint, wallClockHourAngle, yearTable, dot } from './dial.js';
 import { makeT } from './i18n.js';
 
 const f = (n) => String(Math.round(n * 100) / 100);
@@ -862,6 +862,136 @@ export function sunChartMarker(chart, days, min) {
   let out = `<path class="sc-now" d="M${f(cx)} ${f(py)}V${f(py + ph)}"/>`;
   if (min >= chart.t0 && min <= chart.t1) { const cy = chart.Y(min); out += `<path class="sc-now" d="M${f(px)} ${f(cy)}H${f(px + pw)}"/><circle class="sc-now" cx="${f(cx)}" cy="${f(cy)}" r="1.4"/>`; }
   return out;
+}
+
+// ---------------- Shadow test sheet ----------------
+
+/** The test sheet's drawing box, mm: it fits one A4 page inside a 12 mm printer margin, in both languages. */
+export const TEST_BOX = { w: 166, h: 145 };
+
+/** The wall-direction offsets (deg, as the wall's D is set) drawn on the test sheet's ladders. */
+export const TEST_OFFSETS = [-10, -5, -2, 0, 2, 5, 10];
+
+/**
+ * Where the rod tip's shadow falls on day i (of the reference year) at wall-clock time `minutes`, for the dial's rod (L) on a
+ * wall turned `dD` degrees from the set direction (in the page's convention: from the equator side, west +). Dial coords, mm,
+ * or null when the sun is not on the wall.
+ */
+export function testShadow(dial, s, i, minutes, dD = 0, L = dial.L) {
+  const d = yearTable()[i], fr = dD ? wallFrame(absoluteDeclination(s.lat, s.D + dD)) : dial.frame;
+  return shadowPoint(sunVector(d.decl, wallClockHourAngle(i, minutes, s.lon, s.tz, s.dst), s.lat), L, fr);
+}
+
+// The test sheet is fitted to the times when the sun is well onto the wall: at least this far off its plane (deg) and 5° up,
+// for two hours or more, relaxed in steps for a date when the sun only grazes the wall (the squarer the sun, the better the marks). Nearer the plane the shadows run off towards infinity.
+const TEST_OFF_WALL = [45, 30, 15, 8];
+/** Wall-clock minutes of day i, every 10, when the sun is well onto the wall (see TEST_OFF_WALL); [] if it barely reaches it. */
+function testGoodTimes(dial, s, i) {
+  const d = yearTable()[i];
+  for (const deg of TEST_OFF_WALL) {
+    const out = [];
+    for (let m = 0; m < 1440; m += 10) {
+      const v = sunVector(d.decl, wallClockHourAngle(i, m, s.lon, s.tz, s.dst), s.lat);
+      if (v[2] > Math.sin(5 * Math.PI / 180) && dot(v, dial.frame.n) >= Math.sin(deg * Math.PI / 180)) out.push(m);
+    }
+    if (out.length >= (deg === 8 ? 3 : 12)) return out; // two hours of good sun, or at the last step anything at all
+  }
+  return [];
+}
+
+/**
+ * The rod length (mm) for the test sheet: the longest, in whole 5 mm, whose shadows at the good times of day i (testGoodTimes,
+ * with F placed to suit) fit a w x h box. A wall-direction or tilt error shows the same whatever the rod, and a longer rod
+ * spreads the dots: a short dial rod would crowd them near noon. Held to 10..200 mm.
+ */
+export function testRodLength(dial, s, i, w, h) {
+  const good = testGoodTimes(dial, s, i);
+  if (!good.length) return Math.round(dial.L); // the sun barely reaches the wall: nothing to fit, the dial's own rod
+  const pts = [[0, 0], ...good.map((m) => testShadow(dial, s, i, m, 0, 1)).filter(Boolean)];
+  const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+  const span = Math.max((Math.max(...xs) - Math.min(...xs)) / (w - 16), (Math.max(...ys) - Math.min(...ys)) / (h - 16), 1e-6);
+  return Math.min(200, Math.max(10, Math.floor(1 / span / 5) * 5));
+}
+
+/** CSS of the test sheet (black and white: grid, path and dots in black, told apart by weight and dash). */
+function testCss(bw) {
+  const ink = bw ? '#000' : '#1b1b1b', grid = bw ? '#000' : '#b9c4cf', lad = bw ? '#000' : '#1f5fa8', path = bw ? '#000' : '#c0392b';
+  return `.tg5{stroke:${grid};stroke-width:0.1;fill:none${bw ? ';stroke-dasharray:0.3 1.2' : ''}}.tg10{stroke:${grid};stroke-width:0.25;fill:none}` +
+    `.tpl{stroke:${ink};stroke-width:0.3;fill:none;stroke-dasharray:3 1.5}.tf{stroke:${ink};stroke-width:0.35;fill:none}` +
+    `.tpath{stroke:${path};stroke-width:0.35;fill:none}.tdot{fill:${path}}.tlad{stroke:${lad};stroke-width:0.25;fill:none}.tladdot{fill:${lad}}` +
+    `.tt{font-family:Helvetica,Arial,sans-serif;fill:${ink}}.tts{font-size:2.4px}.ttl{font-size:2.2px;fill:${lad}}`;
+}
+
+/**
+ * A one-page sheet to check the dial against the sun, at 1:1 for the dial's own rod: a millimetre grid around F, the rod tip's
+ * shadow path for one day (ctx.day, the reference-year day index) with a dot every 15 minutes of wall-clock time, and every
+ * 30 minutes a ladder of where the dot would be if the wall faced TEST_OFFSETS degrees otherwise. Mount it with F on the rod,
+ * mark the real shadow at a printed time: the ladder dot it lands on is the wall's real direction. Plus a table of the
+ * predicted positions and how to tell a wall-direction error from a tilted rod or a wrong rod length.
+ */
+export function testSheet(dial, ctx) {
+  const { s, t } = ctx, bw = s.ink === 'bw', i = ctx.day ?? 0;
+  const W = 186, x0 = 10, bx = 10, by = 36, bw2 = TEST_BOX.w, bh = TEST_BOX.h; // the drawing box on the sheet, mm
+  const L = ctx.testL || testRodLength(dial, s, i, bw2, bh), shadow = (m, dD = 0) => testShadow(dial, s, i, m, dD, L);
+  // where the day's shadows are (main direction), to place F so that the middle of the day fits the box
+  const pts = [];
+  for (let m = 0; m < 1440; m += 5) { const p = shadow(m); if (p && Math.abs(p[0]) < 4 * bw2 && Math.abs(p[1]) < 4 * bh) pts.push([m, p]); }
+  // F goes where the good times' shadows fit (long, grazing ones do not decide it)
+  const goodList = testGoodTimes(dial, s, i), good = new Set(goodList), mid = pts.filter(([m]) => good.has(m));
+  const xs = [0, ...mid.map(([, p]) => p[0])], ys = [0, ...mid.map(([, p]) => p[1])];
+  const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+  // F on the sheet: the middle of the path's box in the middle of the drawing box, but F itself always inside the box
+  const Fx = Math.min(bx + bw2 - 8, Math.max(bx + 8, bx + bw2 / 2 - cx)), Fy = Math.min(by + bh - 8, Math.max(by + 8, by + bh / 2 + cy));
+  const X = (p) => Fx + p[0], Yd = (p) => Fy - p[1];
+  const inBox = (p) => p && X(p) >= bx && X(p) <= bx + bw2 && Yd(p) >= by && Yd(p) <= by + bh;
+  let g = `<defs><clipPath id="clip-test-box"><rect x="${bx}" y="${by}" width="${bw2}" height="${bh}"/></clipPath></defs>`;
+  // grid: every 5 mm, bold every 10 mm, counted from F
+  let grid = '';
+  for (let k = Math.ceil((bx - Fx) / 5); Fx + k * 5 <= bx + bw2; k++) grid += `<path class="${k % 2 ? 'tg5' : 'tg10'}" d="M${f(Fx + k * 5)} ${by}V${by + bh}"/>`;
+  for (let k = Math.ceil((by - Fy) / 5); Fy + k * 5 <= by + bh; k++) grid += `<path class="${k % 2 ? 'tg5' : 'tg10'}" d="M${bx} ${f(Fy + k * 5)}H${bx + bw2}"/>`;
+  g += `<g clip-path="url(#clip-test-box)">${grid}`;
+  g += `<path class="tpl" d="M${f(Fx)} ${by}V${by + bh}"/>`;
+  // the day's path and the ladders, then the dots on top
+  const path = pts.filter(([, p]) => inBox(p)).map(([, p]) => `${f(X(p))} ${f(Yd(p))}`);
+  if (path.length > 1) g += `<path class="tpath" d="M${path.join('L')}"/>`;
+  let dots = '', table = [];
+  for (let m = 0; m < 1440; m += 15) {
+    const p = shadow(m);
+    if (!inBox(p)) continue;
+    if (m % 30 === 0) {
+      const lad = TEST_OFFSETS.map((dD) => [dD, shadow(m, dD)]).filter(([, q]) => q);
+      g += `<path class="tlad" d="M${lad.map(([, q]) => `${f(X(q))} ${f(Yd(q))}`).join('L')}"/>`;
+      for (const [dD, q] of lad) if (dD) g += `<circle class="tladdot" cx="${f(X(q))}" cy="${f(Yd(q))}" r="${Math.abs(dD) >= 5 ? 0.55 : 0.4}"/>`;
+      // the ladder's ends are labelled on the hours only (the half-hour ladders read the same way)
+      if (m % 60 === 0) for (const [dD, q] of lad) if (Math.abs(dD) === 10) g += `<text class="tt ttl" x="${f(X(q))}" y="${f(Yd(q) - 1)}" style="text-anchor:middle">${dD > 0 ? '+' : '−'}10°</text>`;
+      table.push([fmtHM(m), p]);
+    }
+    dots += `<circle class="tdot" cx="${f(X(p))}" cy="${f(Yd(p))}" r="${m % 30 === 0 ? 0.8 : 0.5}"/>`;
+    if (m % 60 === 0) dots += `<text class="tt tts" x="${f(X(p) + 1.4)}" y="${f(Yd(p) + 3)}">${fmtHM(m)}</text>`; // times on the hours
+  }
+  g += dots + '</g>';
+  g += `<rect class="tf" x="${bx}" y="${by}" width="${bw2}" height="${bh}"/>`;
+  g += `<path class="tf" d="M${f(Fx - 3)} ${f(Fy)}H${f(Fx + 3)}M${f(Fx)} ${f(Fy - 3)}V${f(Fy + 3)}"/><text class="tt tts" x="${f(Fx + 1.5)}" y="${f(Fy - 1.5)}">F</text>`;
+  // text: title and settings above the box; how to use it, the error key and the table below
+  const d = yearTable()[i], dateText = ctx.dateText || `${d.dom} ${t('monthsShort')[d.m]}`;
+  let inner = textLines(x0, 14, [{ t: `${t('title')} — ${t('sheetTest')}`, b: true }], 4.8);
+  inner += textLines(x0, 21, [`${ctx.place ? ctx.place + ' — ' : ''}${latLon(s)} · ${dateText} · D = ${s.D.toFixed(1)}° · ${t('testClock')}`,
+    ...wrapText(t(goodList.length ? 'testRod' : 'testNoSun', L, dial.L.toFixed(0)), 100).map((l) => ({ t: l, b: true }))], 3.2);
+  inner += g;
+  const notes = [t('testHow'), t('testLadder'), t('testKeyWall'), t('testKeyTilt'), t('testKeyLength')].flatMap((n) => wrapText(n, 110));
+  let y = by + bh + 7;
+  inner += textLines(x0, y, notes, 3, 1.4);
+  y += notes.length * 3 * 1.4 + 4;
+  // the predicted positions, x right and y up from F, in up to four columns
+  inner += `<text class="st sb" x="${x0}" y="${f(y)}" font-size="3">${esc(t('testTable'))}</text>`;
+  y += 4.5;
+  const per = Math.ceil(table.length / 4);
+  table.forEach(([hm, p], k) => {
+    const col = Math.floor(k / per), row = k % per;
+    inner += `<text class="st" x="${f(x0 + col * 43)}" y="${f(y + row * 3.6)}" font-size="2.7">${hm}  x ${f(p[0])}  y ${f(p[1])}</text>`;
+  });
+  const H = Math.ceil(y + per * 3.6 + 3);
+  return { W, H, inner, css: testCss(bw), name: 'test', bw };
 }
 
 // ---------------- Tiling ----------------

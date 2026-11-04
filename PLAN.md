@@ -145,6 +145,12 @@ marker and a hover readout. The horizon profile (`horizon`, text) is parsed by `
 stored in canonical form; `horizonAlt` interpolates it around the circle. `sunStats` (and so the warnings) and the
 simulated shadow respect it; the dial's lines and the auto-fit do not (an obstacle can move).
 
+### Shadow test sheet
+`testSheet` (`svg.js`): for one day (the Time controls' date), the rod tip's shadow (`testShadow`, built on `wallClockHourAngle`
+and `shadowPoint`) on a millimetre grid, with ladders for the wall turned by `TEST_OFFSETS`. Its rod length (`testRodLength`)
+is the longest whole 5 mm whose shadows fit the box (`TEST_BOX`) over the hours the sun is well onto the wall (45° off its
+plane for two hours, relaxed to 30°, 15°, 8°); with no such hours the sheet says the sun only grazes the wall that day.
+
 ### SVG export (print plans)
 Laser files (`material: 'laser'`): `laserLayers` (`svg.js`) sorts a sheet's flat markup into Inkscape layers by class
 (`laserLayerOf`: plate/cut → Cut #f00, dial lines/marks/folds → Score #00f, plate text → Engrave #000, the rest → Notes
