@@ -5,7 +5,7 @@ import { wallFromShadow, circularMean, compassHeading, BETA_POOR, parseHorizon, 
 import { DEFAULTS, sanitize, buildDial, fitPlateToPage, fitGnomonToPage, ROD_SCALES, serializeState, dstLabelsApply, wallPresetsFor, wallDirectionName } from '../js/state.js';
 import { faceSheet, faceSheetSize, gnomonSheet, infoSheet, svgDoc, tileSheets, tileLayout, tileSavings, frontViewSvg, shadowMarkup, correctionGraph, correctionMarker, correctionSheet, graphCss, fmtMin } from '../js/svg.js';
 import { fmtHM, yearCorrections, lonCorrection, utcMs, correctionAt } from '../js/astro.js';
-import { scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
+import { esc, scopeCss, sunChart, sunChartMarker, printJobHtml, printJobPages, MAX_QUIET_PAGES, LASER, laserLayers, laserLayerOf, markupTokens } from '../js/svg.js';
 import { L_MIN, L_MAX } from '../js/dial.js';
 import { makeT, STRINGS } from '../js/i18n.js';
 
@@ -528,11 +528,17 @@ test('tileSavings: trimming the stated amount really removes the stated number o
   assert.ok(offered > 10, `the hint is offered for a fair share of layouts (${offered})`);
   assert.equal(tileSavings(670, 546, null), null);
   assert.equal(tileSavings(180, 150, tileLayout(180, 150, 'A4', 10)), null, 'a single page has nothing to save');
-  // the default 600 x 450 dial on A3: 8 mm off the height saves a whole row
+  // the default 600 x 450 dial on A3: with the dimension lines close to the plate it takes 2 × 2 pages (it took 3 × 2)
   const { s } = sanitize({ ...DEFAULTS });
   const dial = buildDial(s, makeT('en')), { W, H } = faceSheetSize(dial, s);
-  const lay = tileLayout(W, H, 'A3', 10), save = tileSavings(W, H, lay);
-  assert.ok(lay.pages === 6 && save && save.axis === 'H' && save.mm < 12 && save.pages === 2, JSON.stringify({ pages: lay.pages, save }));
+  const lay = tileLayout(W, H, 'A3', 10);
+  assert.equal(lay.pages, 4, JSON.stringify({ W, H, pages: lay.pages }));
+  // a real dial the hint applies to: 620 x 460 on A3 is a row of pages too tall, and trimming the plate as told removes it
+  const { s: s2 } = sanitize({ ...DEFAULTS, plateW: 620, plateH: 460 }), z = faceSheetSize(buildDial(s2, makeT('en')), s2);
+  const lay2 = tileLayout(z.W, z.H, 'A3', 10), save = tileSavings(z.W, z.H, lay2);
+  assert.ok(save && save.axis === 'H' && save.mm <= 2 && save.pages === 2, JSON.stringify({ pages: lay2.pages, save }));
+  const { s: s3 } = sanitize({ ...s2, plateH: 460 - Math.ceil(save.mm) }), z3 = faceSheetSize(buildDial(s3, makeT('en')), s3);
+  assert.equal(tileLayout(z3.W, z3.H, 'A3', 10).pages, lay2.pages - save.pages, 'the trimmed plate really needs fewer pages');
 });
 
 test('a sheet that fits on one page takes the orientation that matches its shape', () => {
@@ -1017,4 +1023,43 @@ test('print job of laser sheets: each sheet keeps its own colours and arrowheads
   const gn = html.match(/<g id="content-gnomon">[\s\S]*?<\/g><\/defs>/)[0], info = html.match(/<g id="content-info">[\s\S]*?<\/defs>/)[0];
   assert.ok(gn.includes('url(#arrL)') && !gn.includes('url(#arr)'), 'laser sheets use the laser arrowhead');
   assert.ok(!info.includes('url(#arrL)'), 'paper sheets keep theirs');
+});
+
+test('short caption: no dimension lines; the caption and the info sheet give F and R from the plate edges', () => {
+  for (const lang of ['en', 'it']) {
+    for (const extra of [{}, { gPolar: false, gRod: true }, { material: 'laser' }, { plateW: 120, plateH: 200 }]) {
+      const { s } = sanitize({ ...DEFAULTS, ...extra, lang, faceBrief: true });
+      const t = makeT(lang), dial = buildDial(s, t), P = dial.plate, ctx = { s, t, place: 'x', dateStr: 'x' };
+      const svg = svgDoc(faceSheet(dial, ctx));
+      assert.ok(!svg.includes('class="dim"') && !svg.includes('marker-start'), `${lang} ${JSON.stringify(extra)}: no dimension lines`);
+      assert.ok(svg.includes(esc(t('posF', P.fx.toFixed(1), P.fy.toFixed(1)))), 'F position in the caption');
+      const R = dial.root && s.gPolar ? [P.fx + dial.root[0], P.fy - dial.root[1]] : null;
+      assert.equal(svg.includes(esc(t('posR', R?.[0].toFixed(1), R?.[1].toFixed(1)))), !!R, 'R position exactly when the triangle is drawn');
+      assert.ok(svgDoc(infoSheet(dial, ctx)).includes(esc(t('posF', P.fx.toFixed(1), P.fy.toFixed(1)))), 'and on the info sheet');
+      // the caption stays inside the sheet
+      const sh = faceSheet(dial, ctx);
+      for (const m of svg.matchAll(/<text class="st[^"]*" x="([\d.]+)" y="([\d.]+)" font-size="([\d.]+)">([^<]*)<\/text>/g)) {
+        assert.ok(+m[1] + m[4].length * 1.95 <= sh.W + 1 && +m[2] <= sh.H, `${lang}: "${m[4]}" inside the sheet`);
+      }
+    }
+  }
+  // the full sheet keeps its dimension lines, close to the plate
+  const { s } = sanitize({ ...DEFAULTS }), t = makeT('en'), dial = buildDial(s, t);
+  const svg = svgDoc(faceSheet(dial, { s, t }));
+  assert.ok(svg.includes('class="dim"'), 'full sheet: dimension lines');
+  const m = faceSheetSize(dial, s), mb = faceSheetSize(dial, { ...s, faceBrief: true });
+  assert.ok(mb.W < m.W && mb.H < m.H - 40, 'the short caption saves room');
+});
+
+test('laser key on the short caption: wrapped to the sheet, inside it on every side, in both languages', () => {
+  for (const lang of ['en', 'it']) for (const [plateW, plateH] of [[120, 200], [182, 240], [269, 137], [600, 450]]) for (const faceBrief of [true, false]) {
+    const { s } = sanitize({ ...DEFAULTS, lang, material: 'laser', faceBrief, plateW, plateH });
+    const t = makeT(lang), dial = buildDial(s, t), sh = faceSheet(dial, { s, t, place: 'x', dateStr: 'x' }), svg = svgDoc(sh);
+    const key = [...svg.matchAll(/<text class="st[^"]*" x="([\d.]+)" y="([\d.]+)" font-size="3.2">([^<]*)<\/text>/g)];
+    assert.ok(key.length >= 1, `${lang} ${plateW}: the key is drawn`);
+    for (const m of key) {
+      assert.ok(+m[1] + m[3].length * 1.75 <= sh.W + 0.5, `${lang} ${plateW}x${plateH} ${faceBrief}: "${m[3].slice(0, 20)}…" past the right edge`);
+      assert.ok(+m[2] <= sh.H - 2, `${lang} ${plateW}x${plateH} ${faceBrief}: key past the bottom`);
+    }
+  }
 });
