@@ -106,6 +106,16 @@ longitude + EoT so it reads clock time (analemma per hour line).
 - Noon analemma (figure-8) with month-start ticks — the "calendar" asked for.
 - Optional: analemmas on every hour (clock-time dial), Italian/Babylonian
   hours, substyle line, sun azimuth lines, motto & info text.
+- Wall-clock figure-8s (`anaClock`, rod only, `clockOn` in `state.js`): the analemma traced at a fixed *wall-clock* time,
+  using `wallClockHourAngle` (`dial.js`: summer time off first, then `hourAngleAtClock`, which is built on `correctionAt`).
+  The curve jumps by 15° of hour angle at each summer-time change; the analemma code breaks the line there and draws a bar
+  across each end. They replace the straight hour lines and the other analemmas. A figure-8's hour number goes at the
+  summer end of its part on the plate (none on the plate, no number).
+- 10-minute ticks (`dTicks10`, with the wall-clock 8s): on each month-start date line, ticks every 10 wall-clock minutes,
+  January to June on the upper side of the line and July to December on the lower side (their lines nearly coincide but
+  their times do not). The month lines are drawn with them.
+- 10-minute hour lines (`hTen`): hourly lines bold and labelled, half hours medium, the rest hairlines (`hourFine`,
+  `zoneFine`).
 - Everything clipped to the plate outline.
 
 ### Gnomon types

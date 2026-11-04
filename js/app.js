@@ -3,7 +3,7 @@
 import { sunAt, civilFromUtc, utcFromCivil, norm180, fmtHM, lonCorrection, yearCorrections, correctionAt, dayOfYear, hourAngleAtClock, sunVector, altAz, RAD } from './astro.js';
 import { shadowPoint, absoluteDeclination, relativeDeclination, wallLimit, wallFromShadow, circularMean, compassHeading, BETA_POOR, sunlightGrid, sunState, SUN, yearTable, dot } from './dial.js';
 import { sunChart, sunChartMarker, sunChartCss, frontViewSvg, shadowMarkup, trailMarkup, faceSheet, faceSheetSize, infoSheet, correctionSheet, gnomonSheetFor, correctionGraph, correctionMarker, graphCss, fmtMin, svgDoc, tileSheets, tileLayout, tileSavings, tileName, printJobPages, printJobHtml, MAX_QUIET_PAGES } from './svg.js';
-import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply } from './state.js';
+import { DEFAULTS, PRESETS, wallPresetsFor, sanitize, buildDial, fitPlateToPage, fitGnomonScale, rodXApplies, ROD_MAX, serializeState, dstLabelsApply, clockOn } from './state.js';
 import { makeT } from './i18n.js';
 import { View3D } from './view3d.js';
 
@@ -87,6 +87,13 @@ function writeControls() {
   $('[data-k="bladeR"]').disabled = !state.gBlade; // only the blade has a height
   $('[data-k="hExtend"]').disabled = !state.gPolar; // the style root only exists for the triangular style
   $('[data-k="hDstLabels"]').disabled = !dstLabelsApply(state); // needs lines that read clock time
+  // the wall-clock figure-8s are read at the rod's tip, and they replace the other time lines (whose controls then do nothing)
+  const clk = clockOn(state);
+  $('[data-k="anaClock"]').disabled = !state.gRod;
+  for (const k of ['hSolar', 'hZone', 'hHalf', 'hQuarter', 'hTen', 'hExtend', 'anaMeanNoon', 'anaZoneNoon', 'anaHours']) $(`[data-k="${k}"]`).disabled = clk;
+  if (!clk) $('[data-k="hExtend"]').disabled = !state.gPolar;
+  if (!clk) $('[data-k="hQuarter"]').disabled = state.hTen; // 10-minute lines take the place of quarters
+  $('[data-k="dTicks10"]').disabled = !clk;
   $('#facesAz').textContent = `${((180 + absoluteDeclination(state.lat, state.D) + 360) % 360).toFixed(1)}° (N→E)`;
   $('#frontWrap').hidden = !state.v2d;
   $('#v3dWrap').hidden = !state.v3d;
@@ -114,7 +121,7 @@ function onControl(e) {
     if (k === 'auto' && !v && dial) Object.assign(state, { L: dial.L, fx: dial.plate.fx, fy: dial.plate.fy });
     state[k] = v;
     if (['lat', 'lon', 'tz', 'dst'].includes(k)) state.place = 'custom';
-    if (k === 'hQuarter' && v) state.hHalf = true;
+    if ((k === 'hQuarter' || k === 'hTen') && v) state.hHalf = true;
   }
   update();
   // A number field keeps focus after Enter and is then not rewritten: show the value that was actually used (it may have been clamped).

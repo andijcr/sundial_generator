@@ -43,9 +43,9 @@ export const DEFAULTS = {
   D: 45, horizon: '',
   plateW: 600, plateH: 450, auto: true, L: 80, fx: 300, fy: 100, includeRoot: true, grazing: 12,
   gPolar: true, gRod: true, rodX: 1, gBlade: false, bladeR: 1,
-  hSolar: true, hZone: false, hHalf: true, hQuarter: false, hRoman: false, hExtend: true, hDstLabels: false,
+  hSolar: true, hZone: false, hHalf: true, hQuarter: false, hTen: false, hRoman: false, hExtend: true, hDstLabels: false, anaClock: false,
   anaMeanNoon: true, anaZoneNoon: false, anaHours: false, anaMonthTicks: true,
-  dSolEq: true, dZodiac: false, dMonths: false,
+  dSolEq: true, dZodiac: false, dMonths: false, dTicks10: false,
   xItalian: false, xBabylonian: false, xAzimuth: false, xAltitude: false, xSubstyle: true, xInfo: true, motto: '',
   material: 'paper', faceBrief: false, fitGnomonX: false, paper: 'none', overlap: 10, orient: 'auto', printMargin: 8, ink: 'color',
   v2d: true, v3d: true,
@@ -110,7 +110,13 @@ const r2 = (x, q) => Math.round(x / q) * q;
  * clock time: the zone-time hour lines and the zone-time figure-8s. On the
  * solar-time lines (and the local-mean-noon figure-8) they would be meaningless.
  */
-export const dstLabelsApply = (s) => !!(s.hZone || s.anaZoneNoon || s.anaHours);
+export const dstLabelsApply = (s) => !clockOn(s) && !!(s.hZone || s.anaZoneNoon || s.anaHours);
+
+/**
+ * The wall-clock figure-8s are on: they read what a phone shows (summer time included) at the rod's tip, and replace the
+ * straight hour lines and the other figure-8s (whose controls are then disabled). Rod only.
+ */
+export const clockOn = (s) => !!(s.anaClock && s.gRod);
 
 /** URL-hash form of the state: only values that differ from the defaults. */
 export function serializeState(s) {

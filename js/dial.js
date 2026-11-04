@@ -5,7 +5,7 @@
 // foot F (the point of the wall right behind the nodus), x to the right as you
 // face the wall, y up. The nodus N sits at distance L in front of F.
 
-import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, hourAngleAtClock } from './astro.js';
+import { sunVector, solarParams, sunsetHourAngle, dayMs, DEG, RAD, norm180, norm360, altAz, hourAngleAtClock, isDst } from './astro.js';
 
 export const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -142,6 +142,16 @@ export function yearTable() {
   }
   return YEAR;
 }
+/**
+ * Hour angle (deg) of the sun on day i of the reference year when a wall clock at the site shows `minutes` after midnight:
+ * summer time (rule) is taken off first, then hourAngleAtClock (astro.js) applies the longitude and the equation of time.
+ * This is what a phone shows, so the wall-clock figure-8s and the 10-minute ticks are drawn from it.
+ */
+export function wallClockHourAngle(i, minutes, lon, tz, rule) {
+  const d = yearTable()[i], summer = rule !== 'none' && isDst(dayMs(i), tz, rule);
+  return hourAngleAtClock(minutes - (summer ? 60 : 0), lon, tz, d.eot);
+}
+
 export function declLimits() {
   const Y = yearTable();
   let min = Infinity, max = -Infinity;
@@ -454,16 +464,19 @@ export function computeDial(cfg) {
   };
 
   // ---------- Hour lines ----------
+  // Wall-clock figure-8s (rod only) replace every other time line: the straight hour lines and the other figure-8s.
+  const clock = !!(o.anaClock && o.gRod);
   function hourSet(id, shift, cls, dstLabels) {
-    const step = o.hQuarter ? 0.25 : o.hHalf ? 0.5 : 1;
-    const major = [], minor = [], ext = [], labels = [];
+    const step = o.hTen ? 1 / 6 : o.hQuarter ? 0.25 : o.hHalf ? 0.5 : 1;
+    const major = [], minor = [], fine = [], ext = [], labels = [];
     for (let h = 0; h < 24 - 1e-9; h += step) {
       const H = 15 * (h - 12) + shift;
       const raw = trace(declRange, (d) => SP(d, H), lim);
       if (!raw.length) continue;
-      const isMajor = Math.abs(h - Math.round(h)) < 1e-6;
+      const isMajor = Math.abs(h - Math.round(h)) < 1e-6, isHalf = Math.abs(2 * h - Math.round(2 * h)) < 1e-6;
       const clipped = clipAll(raw, clip);
-      (isMajor ? major : minor).push(...clipped);
+      // hours bold and labelled, half hours (and quarters) medium, 10-minute lines hairline and unlabelled
+      (isMajor ? major : isHalf || !o.hTen ? minor : fine).push(...clipped);
       if (o.hExtend && o.gPolar && root && isMajor && clipped.length) {
         let near = null, nd = Infinity;
         for (const l of raw) for (const pt of [l[0], l[l.length - 1]]) {
@@ -485,11 +498,12 @@ export function computeDial(cfg) {
       }
     }
     add(id + 'Ext', cls + 'Ext', ext);
+    add(id + 'Fine', cls + 'Fine', fine);
     add(id + 'Minor', cls + 'Minor', minor);
     add(id, cls, major, labels);
   }
-  if (o.hSolar) hourSet('hourSolar', 0, 'hour', false);
-  if (o.hZone) hourSet('hourZone', zoneShift, 'zone', o.hDstLabels);
+  if (o.hSolar && !clock) hourSet('hourSolar', 0, 'hour', false);
+  if (o.hZone && !clock) hourSet('hourZone', zoneShift, 'zone', o.hDstLabels);
 
   // ---------- Declination (date) curves ----------
   const Hs = range(-180, 180, 1);
@@ -526,22 +540,27 @@ export function computeDial(cfg) {
     if (!o.dSolEq) list.push([dMax, zodiacSym[3], 0.85], [0, zodiacSym[0] + ' ' + zodiacSym[6], 0.85], [dMin, zodiacSym[9], 0.85]);
     addCurves('dateZodiac', 'dateMinor', list);
   }
-  if (o.dMonths) {
+  const ticks10 = clock && o.dTicks10; // the ticks sit on the month-start lines, so those are drawn with them
+  if (o.dMonths || ticks10) {
     const Y = yearTable();
     const list = Y.filter((d) => d.dom === 1).map((d) => [d.decl, '1 ' + months[d.m], d.m < 6 ? 0.55 : 0.4]);
     addCurves('dateMonths', 'dateMinor', list);
   }
 
   // ---------- Analemmas ----------
-  function analemma(H0, hourLabel, monthLabels, dstLabel) {
+  // Hof(i): the hour angle on day i. A jump between two days (summer time starts or ends, 15°) breaks the curve there.
+  function analemma(Hof, hourLabel, monthLabels, dstLabel) {
     const Y = yearTable();
-    const pts = Y.map((d) => SP(d.decl, H0 + 0.25 * d.eot));
-    const rising = [], falling = [];
+    const Hs8 = Y.map((d, i) => Hof(i));
+    const pts = Y.map((d, i) => SP(d.decl, Hs8[i]));
+    const jump = (i, j) => Math.abs(norm180(Hs8[j] - Hs8[i])) > 5;
+    const rising = [], falling = [], jumps = [];
     let cur = null, curRising = null;
     for (let i = 0; i < Y.length; i++) {
       const j = (i + 1) % Y.length;
       const a = pts[i], b = pts[j];
-      if (!a || !b || Math.abs(a[0]) > lim || Math.abs(b[0]) > lim || Math.abs(a[1]) > lim || Math.abs(b[1]) > lim) {
+      if (a && b && jump(i, j)) jumps.push(a, b); // the two ends of the jump get a bar across the line
+      if (!a || !b || jump(i, j) || Math.abs(a[0]) > lim || Math.abs(b[0]) > lim || Math.abs(a[1]) > lim || Math.abs(b[1]) > lim) {
         if (cur) (curRising ? rising : falling).push(cur);
         cur = null; continue;
       }
@@ -561,8 +580,10 @@ export function computeDial(cfg) {
     if (o.anaMonthTicks) {
       for (let i = 0; i < Y.length; i++) {
         if (Y[i].dom !== 1 || !pts[i]) continue;
-        const a = pts[(i + Y.length - 1) % Y.length], b = pts[(i + 1) % Y.length];
-        if (!a || !b) continue;
+        const ip = (i + Y.length - 1) % Y.length, inx = (i + 1) % Y.length;
+        // the tangent from the neighbours, but not across a summer-time jump
+        const a = jump(ip, i) ? pts[i] : pts[ip], b = jump(i, inx) ? pts[i] : pts[inx];
+        if (!a || !b || a === b) continue;
         const tx = b[0] - a[0], ty = b[1] - a[1], tn = Math.hypot(tx, ty) || 1;
         let nx = -ty / tn, ny = tx / tn;
         const p = pts[i];
@@ -576,10 +597,11 @@ export function computeDial(cfg) {
       }
     }
     if (hourLabel) {
-      // put the hour number beyond the summer (longest shadow) end of the 8
-      let k = 0;
-      Y.forEach((d, i) => { if (pts[i] && d.decl > Y[k].decl) k = i; });
-      if (pts[k]) {
+      // put the hour number beyond the summer (longest shadow) end of the part of the 8 that is on the plate; none on the plate, no label
+      const onPlate = (q) => q && q[0] >= clip.x0 && q[0] <= clip.x1 && q[1] >= clip.y0 && q[1] <= clip.y1;
+      let k = -1;
+      Y.forEach((d, i) => { if (onPlate(pts[i]) && (k < 0 || d.decl > Y[k].decl)) k = i; });
+      if (k >= 0) {
         const p = pts[k];
         const dx = p[0] - cx, dy = p[1] - cy, n = Math.hypot(dx, dy) || 1;
         const q = clampIn([p[0] + (dx / n) * fs * 0.9, p[1] + (dy / n) * fs * 0.9]);
@@ -591,19 +613,53 @@ export function computeDial(cfg) {
         }
       }
     }
+    // a bar across the curve at each end of a summer-time jump, so the change dates are visible
+    for (let k = 0; k < jumps.length; k += 2) {
+      const [p, q] = [jumps[k], jumps[k + 1]];
+      for (const e of [p, q]) {
+        const i = pts.indexOf(e), o2 = pts[(i + Y.length + (e === p ? -1 : 1)) % Y.length] || e;
+        const tx = e[0] - o2[0], ty = e[1] - o2[1], tn = Math.hypot(tx, ty) || 1, bl = fs * 0.45;
+        ticks.push([[e[0] - (ty / tn) * bl, e[1] + (tx / tn) * bl], [e[0] + (ty / tn) * bl, e[1] - (tx / tn) * bl]]);
+      }
+    }
     add('anaR', 'anaR', clipAll(rising, clip));
     add('anaF', 'anaF', clipAll(falling, clip), labels);
     add('anaTicks', 'tick', clipAll(ticks, clip));
   }
-  const noonCount = (o.anaMeanNoon ? 1 : 0) + (o.anaZoneNoon || o.anaHours ? 1 : 0);
-  if (o.anaMeanNoon) analemma(0, noonCount > 1 ? t('meanNoonShort') : null, true, null);
-  if (o.anaHours) {
-    for (let h = 0; h < 24; h++) {
-      const H0 = 15 * (h - 12) + zoneShift;
-      analemma(H0, hourText(h), h === 12, o.hDstLabels ? hourText(h + 1) : null);
+  const Y8 = yearTable(), mean = (H0) => (i) => H0 + 0.25 * Y8[i].eot; // a fixed mean (zone) time: the equation of time only
+  if (clock) {
+    // what a wall clock (a phone) shows, summer time included: one 8 per clock hour, with a jump at each change date
+    for (let h = 0; h < 24; h++) analemma((i) => wallClockHourAngle(i, h * 60, lon, tz, o.dst), hourText(h), h === 12, null);
+  } else {
+    const noonCount = (o.anaMeanNoon ? 1 : 0) + (o.anaZoneNoon || o.anaHours ? 1 : 0);
+    if (o.anaMeanNoon) analemma(mean(0), noonCount > 1 ? t('meanNoonShort') : null, true, null);
+    if (o.anaHours) {
+      for (let h = 0; h < 24; h++) analemma(mean(15 * (h - 12) + zoneShift), hourText(h), h === 12, o.hDstLabels ? hourText(h + 1) : null);
+    } else if (o.anaZoneNoon) {
+      analemma(mean(zoneShift), hourText(12), true, o.hDstLabels ? hourText(13) : null);
     }
-  } else if (o.anaZoneNoon) {
-    analemma(zoneShift, hourText(12), true, o.hDstLabels ? hourText(13) : null);
+  }
+
+  // ---------- 10-minute ticks on the month-start lines (with the wall-clock figure-8s) ----------
+  // On the date line of the 1st of each month, a tick every 10 minutes of wall-clock time on that date: long on the hour,
+  // medium on the half hour. Two months of the year share nearly the same line but not the same times, so January to June
+  // tick on the upper side of their lines and July to December on the lower side.
+  if (ticks10) {
+    const tk = [];
+    for (const d of Y8.filter((x) => x.dom === 1)) {
+      const side = d.m < 6 ? 1 : -1;
+      for (let T = 0; T < 1440; T += 10) {
+        const H = wallClockHourAngle(d.i, T, lon, tz, o.dst);
+        const p = SP(d.decl, H), a = SP(d.decl, H - 0.5), b = SP(d.decl, H + 0.5);
+        if (!p || !a || !b || p[0] < clip.x0 || p[0] > clip.x1 || p[1] < clip.y0 || p[1] > clip.y1) continue;
+        const tx = b[0] - a[0], ty = b[1] - a[1], tn = Math.hypot(tx, ty) || 1;
+        let nx = -ty / tn, ny = tx / tn;
+        if (ny < 0) { nx = -nx; ny = -ny; } // upwards
+        const len = (T % 60 === 0 ? 0.7 : T % 30 === 0 ? 0.5 : 0.32) * fs * side;
+        tk.push([p, [p[0] + nx * len, p[1] + ny * len]]);
+      }
+    }
+    add('clockTicks', 'clockTick', clipAll(tk, clip));
   }
 
   // ---------- Italian / Babylonian hours ----------
